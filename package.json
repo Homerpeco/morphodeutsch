@@ -1,0 +1,13 @@
+{
+  "name": "morphodeutsch",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MorphoDeutsch – Der Adjektiv-Baukasten. Static app plus one sync endpoint on Vercel Blob.",
+  "dependencies": {
+    "@vercel/blob": "2.8.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

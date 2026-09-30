@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MorphoDeutsch</title>
+<meta name="description" content="Der Adjektiv-Baukasten: build, contrast and use German adjectives as word families.">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1420" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script>try{var t=localStorage.getItem('morphodeutsch_theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#practice" aria-label="MorphoDeutsch home">
+    <span class="brand-word"><span class="m-base">Morpho</span><span class="m-suf">Deutsch</span></span>
+    <span class="brand-sub">Der Adjektiv-Baukasten</span>
+  </a>
+  <nav class="tabs" aria-label="Main">
+    <a href="#practice" data-tab="practice">Practice<span class="due-dot" data-due></span></a>
+    <a href="#words" data-tab="words">Words</a>
+    <a href="#add" data-tab="add">Add</a>
+    <a href="#patterns" data-tab="patterns">Patterns</a>
+    <a href="#stats" data-tab="stats">Stats</a>
+  </nav>
+  <div class="tools">
+    <button id="syncBtn" class="sync" type="button" hidden></button>
+    <button id="themeBtn" class="icon-btn" type="button" aria-label="Switch between light and dark theme">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9A7 7 0 0 1 12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="view" tabindex="-1"></main>
+
+<nav class="bottom" aria-label="Main">
+  <a href="#practice" data-tab="practice"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="12" width="7" height="8" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/><rect x="3" y="4" width="7" height="5" rx="1.5"/></svg><span>Practice</span><span class="due-dot" data-due></span></a>
+  <a href="#words" data-tab="words"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Words</span></a>
+  <a href="#add" data-tab="add"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Add</span></a>
+  <a href="#patterns" data-tab="patterns"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="9" width="6" height="6" rx="1.5"/><rect x="10" y="9" width="4" height="6" rx="1.5"/><rect x="15" y="9" width="6" height="6" rx="1.5"/></svg><span>Patterns</span></a>
+  <a href="#stats" data-tab="stats"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V5M19 20v-6"/></svg><span>Stats</span></a>
+</nav>
+
+<div class="sheet-wrap" id="sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="importFile" accept=".json,.csv,application/json,text/csv" hidden>
+
+<script src="data.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
