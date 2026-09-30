@@ -47,6 +47,6 @@ Rule: every `parts` array must spell its word exactly (checked at start-up, erro
 |---|---|
 | Framework preset | Other (no build command) |
 | Storage | connect a Blob store (adds `BLOB_READ_WRITE_TOKEN`) |
-| `SYNC_KEY` (env var) | any password; the app asks for it once per device (`VERB_SYNC_SECRET` also accepted) |
+| `SYNC_KEY` (env var) | any password; the app asks for it once per device (`VERB_SYNC_SECRET` also accepted). **Sync stays off until it is set.** |
 
 Without a Blob store the app still works fully; the badge then says **Local only**.

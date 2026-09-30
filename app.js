@@ -123,7 +123,7 @@ function signature(d){
 const docOf = d => ({items:d.items, deleted:d.deleted, patterns:d.patterns, events:d.events, log:d.log, updatedAt:new Date().toISOString()});
 
 const Sync = (() => {
-  let state = 'off', timer = null, busy = false, again = false, lastOk = 0;
+  let state = 'off', timer = null, busy = false, again = false, lastOk = 0, reason = '';
   const LABEL = {ok:'Synced', saving:'Syncing…', err:'Offline', auth:'Sync key', setup:'Local only', local:'Local only'};
   function badge(s, title){
     state = s;
@@ -142,7 +142,7 @@ const Sync = (() => {
       const r = await fetch('/api/adjectives', {headers:headers(), cache:'no-store'});
       if (r.status === 401) { badge('auth', 'Tap to enter your sync key'); return; }
       if (r.status === 404) { badge('local', 'This copy has no cloud storage. Your words stay on this device.'); return; }
-      if (r.status === 503) { badge('setup', 'Cloud storage is not connected yet. Your words stay on this device.'); return; }
+      if (r.status === 503) { const j = await r.json().catch(() => ({})); reason = /key/.test(j.error || '') ? 'key' : 'storage'; badge('setup', 'Cloud sync is not set up on the server yet. Your words stay on this device.'); return; }
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const remote = await r.json();
       const before = signature(DB);
@@ -167,10 +167,10 @@ const Sync = (() => {
     }
   }
   function schedule(ms){
-    if (state === 'local' || state === 'setup') return;
+    if (state === 'local') return;
     clearTimeout(timer); timer = setTimeout(run, ms == null ? 1500 : ms);
   }
-  return {run, schedule, badge, get state(){ return state; }, get lastOk(){ return lastOk; }};
+  return {run, schedule, badge, get state(){ return state; }, get lastOk(){ return lastOk; }, get reason(){ return reason; }};
 })();
 
 function openSyncDialog(){
@@ -178,8 +178,13 @@ function openSyncDialog(){
   const key = lsGet(KEY_SYNC) || '';
   let body;
   if (st === 'setup') {
-    body = `<p>Cloud storage is not connected on the server yet, so your words are saved on this device only.</p>
-      <p class="muted small">To turn it on: in Vercel, open the <b>morphodeutsch</b> project, go to Storage, and connect a Blob store. Then redeploy.</p>`;
+    body = Sync.reason === 'key'
+      ? `<p>Cloud sync is off until a sync key is set on the server, so your words are saved on this device only.</p>
+        <p class="muted small">To turn it on: in Vercel open the <b>morphodeutsch</b> project, then Settings, Environment Variables. Add <b>SYNC_KEY</b> with a password of your choice (your Verb Meister key works too) and redeploy. Then enter the same key here on each device.</p>`
+      : `<p>Cloud storage is not connected on the server yet, so your words are saved on this device only.</p>
+        <p class="muted small">To turn it on: in Vercel open the <b>morphodeutsch</b> project, go to Storage and connect a Blob store, then redeploy.</p>`;
+    body += `<div class="field"><label for="syncKey">Sync key</label><input id="syncKey" class="txt" type="password" autocomplete="off" value="${esc(key)}"></div>
+      <div class="btn-row"><button class="btn primary" data-act="sync-save">Save key and try again</button></div>`;
   } else {
     body = `<p>Your words are saved on this device. To keep laptop and phone in step, enter the sync key set on the server (<b>SYNC_KEY</b> in Vercel).</p>
       <div class="field"><label for="syncKey">Sync key</label><input id="syncKey" class="txt" type="password" autocomplete="off" value="${esc(key)}"></div>
