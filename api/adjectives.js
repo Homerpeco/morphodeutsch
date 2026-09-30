@@ -4,8 +4,8 @@
 //
 // Vercel setup:
 //   1. Storage → connect a Blob store to this project (adds BLOB_READ_WRITE_TOKEN).
-//   2. Optional: env var SYNC_KEY — any password. When set, every request must send it in x-sync-key;
-//      the app asks for it once per device. (VERB_SYNC_SECRET is accepted as a fallback name.)
+//   2. Env var SYNC_KEY — any password. Every request must send it in x-sync-key; the app asks for it
+//      once per device. Without it, sync stays off. (VERB_SYNC_SECRET is accepted as a fallback name.)
 
 import { put, list } from '@vercel/blob';
 
@@ -15,8 +15,12 @@ const MAX_BYTES = 4 * 1024 * 1024;
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
 
+  // Secure by default: no key set on the server → sync stays off (the app keeps working on each device).
   const secret = process.env.SYNC_KEY || process.env.VERB_SYNC_SECRET;
-  if (secret && req.headers['x-sync-key'] !== secret) {
+  if (!secret) {
+    return res.status(503).json({ error: 'sync key not configured', hint: 'Add the SYNC_KEY environment variable in Vercel and redeploy.' });
+  }
+  if (req.headers['x-sync-key'] !== secret) {
     return res.status(401).json({ error: 'unauthorized' });
   }
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
