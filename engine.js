@@ -282,6 +282,13 @@ const G = (() => {
       const parts = [pm[1], 'ge', stem, pm[3]].filter(Boolean);
       return {kind:'p2', affix:'p2', base, parts, sure:false};
     }
+    // Partizip II of inseparable verbs: ent-fern-t, be-geister-t, ver-ärger-t (no ge-)
+    const im = w.match(/^(be|emp|ent|er|ver|zer|miss|über|unter|hinter|wider)([a-zäöü]{3,}?)(et|t)$/);
+    if (im && im[2].length >= 4 - (im[3] === 'et' ? 1 : 0)) {
+      const stem = im[1] + im[2];
+      const base = stem + (/(el|er)$/.test(stem) ? 'n' : 'en');
+      return {kind:'p2', affix:'p2', base, parts:[stem, im[3]], sure:false};
+    }
     return null;
   }
 

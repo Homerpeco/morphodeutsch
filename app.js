@@ -290,7 +290,7 @@ function openSheet(html){
   document.body.style.overflow = 'hidden';
   setTimeout(() => { const f = $('.sheet input, .sheet .btn.primary', w); if (f) f.focus(); }, 30);
 }
-function closeSheet(){ $('#sheet').hidden = true; document.body.style.overflow = ''; }
+function closeSheet(){ $('#sheet').hidden = true; document.body.style.overflow = ''; if (typeof REV !== 'undefined') REV = null; }
 
 /* ======================= stats helpers ======================= */
 function streak(){
@@ -308,9 +308,10 @@ function weakItem(it){
 
 /* ======================= PRACTICE: exercise makers ======================= */
 const TITLE = {intro:'New word', meaningPick:'Meaning', recall:'Recall', build:'Derivation lab', transfer:'Transfer challenge', decon:'Deconstruct',
-  family:'Word family', contrast:'Discriminate', p1p2:'Partizip I or II?', ending:'Inflect', cloze:'Collocate', valency:'Preposition and case', produce:'Produce'};
+  family:'Word family', contrast:'Discriminate', p1p2:'Partizip I or II?', ending:'Inflect', cloze:'Collocate', valency:'Preposition and case', produce:'Produce',
+  sense:'Which meaning?', match:'Match the family', translate:'English to German'};
 const SKILL_OF = {meaningPick:'meaning', recall:'meaning', build:'form', transfer:'transfer', decon:'family', family:'family', contrast:'contrast',
-  p1p2:'contrast', ending:'ending', cloze:'colloc', valency:'valency', produce:'produce'};
+  p1p2:'contrast', ending:'ending', cloze:'colloc', valency:'valency', produce:'produce', sense:'meaning', match:'family', translate:'produce'};
 const SKILL_LABEL = {form:'Build the form', family:'Word family', contrast:'Contrasts', ending:'Endings', colloc:'Words in context', meaning:'Meaning',
   valency:'Preposition and case', produce:'Own sentences'};
 const CAT_OF = {meaning:'direct', form:'direct', colloc:'direct', family:'family', ending:'usage', contrast:'usage', valency:'usage', produce:'usage', transfer:'transfer'};
@@ -404,15 +405,19 @@ const MK = {
     return {type:'family', id:it.id, data:{opts, ans:opts.indexOf(correct), noun:isNoun}};
   },
   contrast(it){
-    const useAnt = it.ant.length && (!it.syn.length || Math.random() < 0.6);
-    const list = useAnt ? it.ant : it.syn;
+    let mean = null;
+    const ms = (it.meanings || []).filter(m => (m.syn && m.syn.length) || (m.ant && m.ant.length));
+    if (ms.length) mean = pick(ms);
+    const A = mean ? mean.ant : it.ant, Sy = mean ? mean.syn : it.syn;
+    const useAnt = A.length && (!Sy.length || Math.random() < 0.6);
+    const list = useAnt ? A : Sy;
     if (!list.length) return null;
     const correct = pick(list);
     const {deck, lib} = adjPool(it);
     const wrong = distract(correct, deck.length >= 3 ? deck : [...deck, ...lib], 3, w => relatedSet(it).has(lc(w)));
     if (wrong.length < 3) return null;
     const opts = shuffle([correct, ...wrong]);
-    return {type:'contrast', id:it.id, data:{opts, ans:opts.indexOf(correct), mode:useAnt ? 'ant' : 'syn'}};
+    return {type:'contrast', id:it.id, data:{opts, ans:opts.indexOf(correct), mode:useAnt ? 'ant' : 'syn', gloss:mean && it.meanings.length > 1 ? mean.gloss : ''}};
   },
   p1p2(it){
     const w = it ? lc(it.w) : null;
@@ -466,20 +471,56 @@ const MK = {
     const rows = it.prep.filter(p => p.p && p.c && p.ex);
     for (const p of shuffle(rows)) {
       const f = G.findForm(p.ex, it.w);
-      const from = f ? f.index : 0;
       const re = new RegExp('(^|[^A-Za-zÄÖÜäöüß])(' + p.p + ')(?=[^A-Za-zÄÖÜäöüß])', 'i');
-      const tail = p.ex.slice(from);
-      const m = tail.match(re);
-      if (!m) continue;
-      const at = from + m.index + m[1].length;
+      const from = f ? f.index : 0;
+      let m = p.ex.slice(from).match(re), at, contr = '';
+      if (m) at = from + m.index + m[1].length;
+      else m = p.ex.match(re), at = m ? m.index + m[1].length : null;
+      if (at == null) {
+        const forms = Object.keys(CONTRACTIONS).filter(c => CONTRACTIONS[c][0] === p.p);
+        const rc = forms.length ? new RegExp('(^|[^A-Za-zÄÖÜäöüß])(' + forms.join('|') + ')(?=[^A-Za-zÄÖÜäöüß])', 'i') : null;
+        m = rc && p.ex.match(rc);
+        if (!m) continue;
+        at = m.index + m[1].length; contr = m[2];
+      }
       const sentence = p.ex.slice(0, at) + '___' + p.ex.slice(at + m[2].length);
       const preps = uniq([p.p, ...shuffle(['an','auf','für','von','mit','vor','über','zu','bei','in','gegenüber']).filter(x => x !== p.p).slice(0, 5)]);
-      return {type:'valency', id:it.id, data:{sentence, p:p.p, c:p.c, en:p.en || '', preps:shuffle(preps)}};
+      return {type:'valency', id:it.id, data:{sentence, p:p.p, c:p.c, en:p.en || '', preps:shuffle(preps), contr}};
     }
     return null;
   },
-  produce(it){ return {type:'produce', id:it.id, data:{prompt:pick(PROMPTS)}}; }
+  produce(it){ return {type:'produce', id:it.id, data:{prompt:pick(PROMPTS)}}; },
+  sense(it){
+    const ms = (it.meanings || []).filter(m => m.gloss);
+    if (ms.length < 2) return null;
+    const withEx = ms.filter(m => (m.examples || []).some(e => G.findForm(e.de, it.w)));
+    if (!withEx.length) return null;
+    const m = pick(withEx);
+    const e = pick(m.examples.filter(x => G.findForm(x.de, it.w)));
+    const opts = ms.slice(0, 4).map(x => x.gloss);
+    const ans = opts.indexOf(m.gloss);
+    if (ans < 0) return null;
+    return {type:'sense', id:it.id, data:{s:e.de, en:e.en, opts, ans}};
+  },
+  match(it){
+    const fam = (it.familyTyped || []).filter(f => f.gloss && f.w);
+    const core = fam.filter(f => f.type !== 'semantic');
+    const pool = (core.length >= 3 ? core : fam);
+    if (pool.length < 3) return null;
+    const pairs = shuffle(pool).slice(0, 4);
+    const glosses = pairs.map(p => p.gloss);
+    if (new Set(glosses.map(lc)).size !== glosses.length) return null;
+    return {type:'match', id:it.id, data:{left:pairs.map(p => p.w), right:shuffle(glosses), key:Object.fromEntries(pairs.map(p => [p.w, p.gloss])), done:[], sel:null, errors:0}};
+  },
+  translate(it){
+    const pairs = [];
+    (it.meanings || []).forEach(m => (m.examples || []).forEach(e => { if (e.en && G.findForm(e.de, it.w)) pairs.push({de:e.de, en:e.en, gloss:m.gloss}); }));
+    if (!pairs.length) it.ex.forEach((de, i) => { if (it.exEn[i] && G.findForm(de, it.w)) pairs.push({de, en:it.exEn[i], gloss:''}); });
+    if (!pairs.length) return null;
+    return {type:'translate', id:it.id, data:Object.assign({shown:false}, pick(pairs))};
+  }
 };
+const CONTRACTIONS = {vom:['von','dem'], zum:['zu','dem'], zur:['zu','der'], beim:['bei','dem'], im:['in','dem'], ins:['in','das'], am:['an','dem'], ans:['an','das'], aufs:['auf','das'], fürs:['für','das'], ums:['um','das'], übers:['über','das'], durchs:['durch','das']};
 function exEnFor(it, s){ const i = it.ex.indexOf(s); return i >= 0 && it.exEn[i] ? it.exEn[i] : ''; }
 
 // chip tray for the derivation lab
@@ -531,13 +572,13 @@ function optLabel(id){
 function typesForSkill(sk, it){
   switch (sk) {
     case 'form': return ['build'];
-    case 'family': return shuffle(['family','decon']);
+    case 'family': return shuffle(['family','decon','match']);
     case 'contrast': return Math.random() < 0.5 ? ['p1p2','contrast'] : ['contrast','p1p2'];
     case 'ending': return ['ending'];
     case 'colloc': return ['cloze'];
-    case 'meaning': return it.srs.box <= 1 ? ['meaningPick','recall'] : ['recall','meaningPick'];
+    case 'meaning': return it.srs.box <= 1 ? ['meaningPick','sense','recall'] : shuffle(['recall','sense']).concat(['meaningPick']);
     case 'valency': return ['valency'];
-    case 'produce': return ['produce'];
+    case 'produce': return shuffle(['translate','produce']);
   }
   return [];
 }
@@ -611,7 +652,9 @@ function startModule(mod, arg){
     for (let round = 0; round < 3 && queue.length < N; round++) addFrom(items, 'ending');
     queue = queue.slice(0, N);
   } else if (mod === 'contrast') addFrom(items, 'contrast');
-  else if (mod === 'family') { for (const it of shuffle(items)) { const ex = makeFor(Math.random() < 0.5 ? 'family' : 'decon', it) || makeFor('family', it) || makeFor('decon', it); if (ex) queue.push(ex); if (queue.length >= N) break; } }
+  else if (mod === 'family') { for (const it of shuffle(items)) { const ex = makeFor(pick(['family','decon','match']), it) || makeFor('match', it) || makeFor('family', it) || makeFor('decon', it); if (ex) queue.push(ex); if (queue.length >= N) break; } }
+  else if (mod === 'sense') { for (let r = 0; r < 4 && queue.length < 8; r++) addFrom(items, 'sense'); queue = queue.slice(0, 8); }
+  else if (mod === 'translate') { for (let r = 0; r < 3 && queue.length < 6; r++) addFrom(items, 'translate'); queue = queue.slice(0, 6); }
   else if (mod === 'colloc') addFrom(items, 'cloze');
   else if (mod === 'valency') { for (let r = 0; r < 3 && queue.length < 6; r++) addFrom(items, 'valency'); queue = queue.slice(0, 6); }
   else if (mod === 'produce') { addFrom(items, 'produce'); queue = queue.slice(0, 3); }
@@ -754,6 +797,8 @@ function renderPracticeHome(){
     {id:'family', title:'Word families', p:'Connect each adjective to its noun and its verb.', demo:`<span class="word">die Herausforderung</span>`, n:`${DB.items.filter(it => makeFor('family', it) || makeFor('decon', it)).length} words`},
     {id:'colloc', title:'Words in context', p:'Complete sentences taken from your examples.', demo:`<span class="word">eine ___ Strategie</span>`, n:`${count('cloze')} words with examples`},
     {id:'valency', title:'With prepositions', p:'Which preposition, and which case?', demo:`<span class="word">sicher vor + Dat.</span>`, n:`${count('valency')} words with a preposition`},
+    {id:'sense', title:'Which meaning?', p:'Words with several meanings: pick the one the sentence uses.', demo:`<span class="word">weit entfernt</span><span class="muted">or</span><span class="word">der entfernte Fleck</span>`, n:`${count('sense')} words with several meanings`},
+    {id:'translate', title:'English to German', p:'Say or write the German sentence, then compare.', demo:`<span class="word">The hotel is far away.</span>`, n:`${count('translate')} words with translated examples`},
     {id:'produce', title:'Write your own', p:'Use a word in a sentence about your work or course.', demo:`<span class="word">Mein Beruf ist …</span>`, n:'Saved to each word card'}
   ];
   view().innerHTML = `
@@ -883,8 +928,8 @@ function exHtml(ex){
       return `${exHead(ex)}<div class="ex-q">Which ${d.noun ? 'noun' : 'word'} belongs to the same family?</div>
         <div class="bigword">${esc(it.w)}</div><div class="gloss" style="margin-bottom:12px">${esc(it.en)}</div>${optsHtml(d.opts, ex, true)}`;
     case 'contrast':
-      return `${exHead(ex)}<div class="ex-q">${d.mode === 'ant' ? 'Which word means the <b>opposite</b>?' : 'Which word is <b>closest in meaning</b>?'}</div>
-        <div class="bigword">${esc(it.w)}</div><div class="gloss" style="margin-bottom:12px">${esc(it.en)}</div>${optsHtml(d.opts, ex, true)}`;
+      return `${exHead(ex)}<div class="ex-q">${d.mode === 'ant' ? 'Which word means the <b>opposite</b>' : 'Which word is <b>closest in meaning</b>'}${d.gloss ? ` in the sense <b>${esc(d.gloss)}</b>` : ''}?</div>
+        <div class="bigword">${esc(it.w)}</div><div class="gloss" style="margin-bottom:12px">${esc(d.gloss || it.en)}</div>${optsHtml(d.opts, ex, true)}`;
     case 'p1p2':
       return `${exHead(ex)}<div class="ex-q">Does the thing <b>cause</b> the feeling (-end), or does someone <b>feel</b> it (ge-…-t)?</div>
         ${sentenceHtml(d.s)}${optsHtml(d.opts, ex, true)}`;
@@ -910,12 +955,35 @@ function exHtml(ex){
         ${sentenceHtml(d.sentence)}${d.en ? `<div class="hint-line">${esc(d.en)}</div>` : `<div class="hint-line">Meaning: ${esc(it.en)}</div>`}${optsHtml(d.opts, ex, true)}`;
     case 'valency':
       return `${exHead(ex)}<div class="ex-q">Which preposition does <b>${esc(it.w)}</b> take here, and which case follows?</div>
-        ${sentenceHtml(d.sentence, d.pp)}
+        ${sentenceHtml(d.sentence, d.pp)}${d.contr ? '<div class="hint-line">The gap holds a preposition contracted with the article (like vom, zum). Pick the preposition.</div>' : ''}
         <div class="step-label">Preposition</div>
         <div class="chips">${d.preps.map(p => `<button class="chip ${d.pp === p ? 'on' : ''}" data-act="v-prep" data-p="${esc(p)}">${esc(p)}</button>`).join('')}</div>
         <div class="step-label">Case after it</div>
         <div class="chips">${[['A','accusative'],['D','dative'],['G','genitive']].map(([c, l]) => `<button class="chip ${d.cc === c ? 'on' : ''}" data-act="v-case" data-c="${c}">${l}</button>`).join('')}</div>
         <div class="ex-actions"><span></span><button class="btn primary" data-act="v-check" ${d.pp && d.cc ? '' : 'disabled'}>Check</button></div>`;
+    case 'sense': {
+      const f = G.findForm(d.s, it.w);
+      const html = f ? esc(d.s.slice(0, f.index)) + `<b class="m-base">${esc(f.form)}</b>` + esc(d.s.slice(f.index + f.form.length)) : esc(d.s);
+      return `${exHead(ex)}<div class="ex-q">Which meaning of <b>${esc(it.w)}</b> is used here?</div>
+        <div class="sentence">${html} ${speakBtn(d.s)}</div>${optsHtml(d.opts, ex)}`;
+    }
+    case 'match': {
+      const doneW = new Set(d.done), doneG = new Set(d.done.map(w => d.key[w]));
+      return `${exHead(ex)}<div class="ex-q">Match each word from the family of <b>${esc(it.w)}</b> with its meaning.</div>
+        <div class="match">
+          <div class="mcol">${d.left.map((w, i) => `<button class="opt w ${doneW.has(w) ? 'right' : ''} ${d.sel === i ? 'picked' : ''}" data-act="m-left" data-i="${i}" ${doneW.has(w) ? 'disabled' : ''}>${esc(w)}</button>`).join('')}</div>
+          <div class="mcol">${d.right.map((g, i) => `<button class="opt ${doneG.has(g) ? 'right' : ''}" data-act="m-right" data-i="${i}" ${doneG.has(g) ? 'disabled' : ''}>${esc(g)}</button>`).join('')}</div>
+        </div>
+        <div class="hint-line" style="margin-top:10px">Tap a German word, then its meaning.${d.errors ? ` Mismatches so far: ${d.errors}.` : ''}</div>`;
+    }
+    case 'translate':
+      return `${exHead(ex)}<div class="ex-q">Say it in German, or write it${d.gloss ? `, using <b>${esc(it.w)}</b> in the sense <b>${esc(d.gloss)}</b>` : `, using <b>${esc(it.w)}</b>`}.</div>
+        <div class="bigword" style="font-size:clamp(22px,4.4vw,30px);font-family:var(--f-ui);font-weight:700">${esc(d.en)}</div>
+        <textarea id="prod" class="txt" rows="3" placeholder="Your German sentence (optional)" aria-label="Your German sentence" ${d.shown ? 'disabled' : ''}></textarea>
+        ${umlautPad()}
+        ${d.shown ? `<div class="fb" style="margin-top:12px"><div class="small muted">Model answer</div><div class="sentence" style="font-size:22px;margin:4px 0">${esc(d.de)} ${speakBtn(d.de)}</div>
+          <div class="btn-row"><button class="btn" data-act="tr-grade" data-ok="0">Not quite</button><button class="btn primary" data-act="tr-grade" data-ok="1">I had it right</button></div></div>`
+        : `<div class="ex-actions"><span class="kbd-hint">Compare with the model, then be honest</span><button class="btn primary" data-act="tr-show">Show the German</button></div>`}`;
     case 'produce':
       return `${exHead(ex)}<div class="ex-q">Write one sentence about your work, your course or your plans that uses this word (any ending).</div>
         <div style="display:flex;align-items:center;gap:10px"><div class="bigword">${wordHtml(it)}</div>${speakBtn(it.w)}</div>
@@ -991,10 +1059,29 @@ function showFeedback(ex){
       break;
     }
     case 'valency': {
-      const full = d.sentence.replace('___', d.p);
+      const full = d.sentence.replace('___', d.contr || d.p);
       rows.push(['Answer', `<b>${esc(it.w)} ${esc(d.p)}</b> + ${esc(G.CASE_EN[d.c])}`]);
+      if (d.contr) why = `Here the preposition is contracted with the article: ${esc(d.contr)} = ${esc(CONTRACTIONS[lc(d.contr)].join(' '))}.`;
       rows.push(['Sentence', `${esc(full)} ${speakBtn(full)}`]);
       if (d.en) rows.push(['Meaning', esc(d.en)]);
+      break;
+    }
+    case 'sense': {
+      rows.push(['Meaning here', esc(d.opts[d.ans])]);
+      if (d.en) rows.push(['English', esc(d.en)]);
+      const others = (it.meanings || []).filter(m => m.gloss !== d.opts[d.ans]);
+      if (others.length) rows.push(['Other meanings', others.map(m => `<div>${esc(m.gloss)}${m.collocations && m.collocations[0] ? ` <span class="muted">· ${esc(m.collocations[0])}</span>` : ''}</div>`).join('')]);
+      break;
+    }
+    case 'match': {
+      rows.push(['Family', d.left.map(w => `<div><b>${esc(w)}</b> = ${esc(d.key[w])}</div>`).join('')]);
+      if (d.errors) rows.push(['Mismatches', String(d.errors)]);
+      break;
+    }
+    case 'translate': {
+      rows.push(['German', `${esc(d.de)} ${speakBtn(d.de)}`]);
+      if (info.text) rows.push(['You wrote', esc(info.text)]);
+      if (info.text && !G.findForm(info.text, it.w)) why = `Your sentence did not use ${esc(it.w)}. The point is to practise this word.`;
       break;
     }
     case 'produce': {
@@ -1007,7 +1094,7 @@ function showFeedback(ex){
   }
   if (it && ex.type !== 'produce') {
     if (!['build','decon'].includes(ex.type) && it.kind !== 'simple') rows.push(['Built', formationDiagramInline(it)]);
-    const fc = familyChain(it); if (fc && ex.type !== 'family') rows.push(['Family', fc]);
+    const fc = familyChain(it); if (fc && ex.type !== 'family' && ex.type !== 'match') rows.push(['Family', fc]);
     if (ex.type === 'family') rows.push(['Family', fc]);
     const ph = phrasesOf(it)[0]; if (ph && ex.type !== 'ending') rows.push(['Phrase', esc(ph)]);
     if (it.contrast && it.contrast.note) rows.push(['Contrast', esc(it.contrast.note)]);
@@ -1015,7 +1102,7 @@ function showFeedback(ex){
   let extra = '';
   if (info.nudged && info.nudged.length) extra += `<div class="transfer">Related words brought forward to tomorrow for a quick check: ${info.nudged.map(w => `<b>${esc(w)}</b>`).join(', ')}. They keep their boxes.</div>`;
   if (info.followUps) extra += `<div class="transfer">Two short follow-up questions about this word come later in this session.</div>`;
-  const canOverride = ex.correct === false && ['meaningPick','recall','decon','family','contrast','cloze'].includes(ex.type) && !(ex.typed);
+  const canOverride = ex.correct === false && ['meaningPick','recall','decon','family','contrast','cloze','sense'].includes(ex.type) && !(ex.typed);
   fb.innerHTML = `<div class="fb-head ${headCls}">${head}</div>
     <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>
     ${info.table ? `<div class="table-wrap">${info.table}</div>` : ''}${why ? `<div class="note">${why}</div>` : ''}${extra}
@@ -1183,20 +1270,54 @@ function openWord(id){
     <div class="detail-head"><h2 id="sheetTitle" class="bigword" style="margin:0">${wordHtml(it)}</h2>${speakBtn(it.w)}${statusPill(it)}</div>
     <div class="gloss">${esc(it.en || 'Meaning not added yet')}</div>
     ${formationDiagram(it, {big:true})}
-    ${familyChain(it) ? `<div class="sec"><h3>Word family</h3>${familyChain(it)}</div>` : ''}
+    ${it.meanings && it.meanings.length ? meaningsHtml(it) : ''}
+    ${it.familyTyped && it.familyTyped.length ? typedFamilyHtml(it) : (familyChain(it) ? `<div class="sec"><h3>Word family</h3>${familyChain(it)}</div>` : '')}
+    ${it.grammar ? grammarHtml(it) : ''}
     ${it.partner ? `<div class="sec"><h3>Participle partner</h3><span class="word">${esc(it.partner)}</span> <span class="muted small">${/end$/.test(it.partner) ? '(the cause: something does it to you)' : '(the state: someone feels it)'}</span></div>` : ''}
-    ${it.ant.length || it.syn.length ? `<div class="sec"><h3>Contrasts</h3><div class="tags">${it.ant.map(a => `<span class="tag ant">≠ ${esc(a)}</span>`).join('')}${it.syn.map(a => `<span class="tag syn">≈ ${esc(a)}</span>`).join('')}</div>${it.contrast && it.contrast.note ? `<p class="small" style="margin-top:8px">${esc(it.contrast.note)}</p>` : ''}</div>` : ''}
-    ${ph.length ? `<div class="sec"><h3>Goes with</h3><div class="tags">${ph.map(p => `<span class="tag">${esc(p)}</span>`).join('')}</div></div>` : ''}
-    ${it.prep.length ? `<div class="sec"><h3>With a preposition</h3><ul>${it.prep.map(p => `<li><b>${esc(it.w)} ${esc(p.p)}</b> + ${esc(G.CASE_EN[p.c] || p.c)}${p.en ? ` (${esc(p.en)})` : ''}${p.ex ? `<br><span class="small">${esc(p.ex)}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
-    ${it.ex.length ? `<div class="sec"><h3>Examples</h3><ul>${it.ex.map((s, i) => `<li>${esc(s)} ${speakBtn(s)}${it.exEn[i] ? `<br><span class="small muted">${esc(it.exEn[i])}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
+    ${!(it.meanings && it.meanings.length) && (it.ant.length || it.syn.length) ? `<div class="sec"><h3>Contrasts</h3><div class="tags">${it.ant.map(a => `<span class="tag ant">≠ ${esc(a)}</span>`).join('')}${it.syn.map(a => `<span class="tag syn">≈ ${esc(a)}</span>`).join('')}</div>${it.contrast && it.contrast.note ? `<p class="small" style="margin-top:8px">${esc(it.contrast.note)}</p>` : ''}</div>` : ''}
+    ${ph.length && !(it.meanings && it.meanings.length) ? `<div class="sec"><h3>Goes with</h3><div class="tags">${ph.map(p => `<span class="tag">${esc(p)}</span>`).join('')}</div></div>` : ''}
+    ${it.prep.length && !(it.meanings && it.meanings.length) ? `<div class="sec"><h3>With a preposition</h3><ul>${it.prep.map(p => `<li><b>${esc(it.w)} ${esc(p.p)}</b> + ${esc(G.CASE_EN[p.c] || p.c)}${p.en ? ` (${esc(p.en)})` : ''}${p.ex ? `<br><span class="small">${esc(p.ex)}</span>` : ''}</li>`).join('')}</ul></div>` : ''}
+    ${otherExamplesHtml(it)}
     ${it.mine.length ? `<div class="sec"><h3>My sentences</h3><ul>${it.mine.map(m => `<li>${esc(m.text)}</li>`).join('')}</ul></div>` : ''}
     ${skills ? `<div class="sec"><h3>Skills</h3><div class="skill-bars">${skills}</div></div>` : ''}
     <p class="small muted" style="margin-top:14px">${esc(it.source || '')}${it.chapter ? `, Kapitel ${esc(it.chapter)}` : ''}${it.page ? `, page ${esc(it.page)}` : ''}. Box ${it.srs.box} of 6.</p>
     <div class="btn-row" style="margin-top:12px">
       <button class="btn primary" data-act="practise-word" data-id="${esc(it.id)}">Practise this word</button>
+      <button class="btn ai-btn" data-act="ai-word" data-id="${esc(it.id)}">${it.aiAt ? 'Analyse again with AI' : 'Analyse with AI'}</button>
       <button class="btn" data-act="edit-word" data-id="${esc(it.id)}">Edit</button>
       <button class="btn quiet danger" data-act="delete-word" data-id="${esc(it.id)}">Delete</button>
     </div>`);
+}
+const TYPE_NAME = {direct:'Direct family', derived:'Derived forms', compound:'Compounds', semantic:'Related in meaning only'};
+function otherExamplesHtml(it){
+  const inM = new Set((it.meanings || []).flatMap(m => (m.examples || []).map(e => lc(e.de))));
+  const rest = it.ex.map((s, i) => [s, it.exEn[i]]).filter(([s]) => !inM.has(lc(s)));
+  if (!rest.length) return '';
+  return `<div class="sec"><h3>${inM.size ? 'More examples' : 'Examples'}</h3><ul>${rest.map(([s, en]) => `<li>${esc(s)} ${speakBtn(s)}${en ? `<br><span class="small muted">${esc(en)}</span>` : ''}</li>`).join('')}</ul></div>`;
+}
+function meaningsHtml(it){
+  return `<div class="sec"><h3>Meanings</h3>${it.meanings.map((m, i) => `
+    <div class="mgroup">
+      <div class="mg-head"><span class="rv-num">${i + 1}</span><b>${esc(m.gloss)}</b>${m.register && m.register !== 'common' ? `<span class="pill">${esc(m.register)}</span>` : ''}</div>
+      ${m.note ? `<p class="small muted" style="margin:4px 0 0">${esc(m.note)}</p>` : ''}
+      ${m.collocations && m.collocations.length ? `<div class="tags" style="margin-top:6px">${m.collocations.map(c => `<span class="tag">${esc(c)}</span>`).join('')}</div>` : ''}
+      ${(m.syn && m.syn.length) || (m.ant && m.ant.length) ? `<div class="tags" style="margin-top:6px">${(m.syn || []).map(a => `<span class="tag syn">≈ ${esc(a)}</span>`).join('')}${(m.ant || []).map(a => `<span class="tag ant">≠ ${esc(a)}</span>`).join('')}</div>` : ''}
+      ${m.prep && m.prep.length ? `<div class="small" style="margin-top:6px">${m.prep.map(p => `<b>${esc(p.en || (it.w + ' ' + p.p + ' + ' + (G.CASE_EN[p.c] || p.c)))}</b>${p.ex ? `: ${esc(p.ex)}` : ''}`).join('<br>')}</div>` : ''}
+      ${m.examples && m.examples.length ? `<ul class="mg-ex">${m.examples.map(e => `<li>${esc(e.de)} ${speakBtn(e.de)}${e.en ? `<br><span class="small muted">${esc(e.en)}</span>` : ''}</li>`).join('')}</ul>` : ''}
+    </div>`).join('')}</div>`;
+}
+function typedFamilyHtml(it){
+  const groups = {};
+  it.familyTyped.forEach(f => { (groups[f.type] = groups[f.type] || []).push(f); });
+  return `<div class="sec"><h3>Word family</h3>${['direct','derived','compound','semantic'].filter(t => groups[t]).map(t => `
+    <div class="small muted" style="margin:6px 0 4px">${TYPE_NAME[t]}</div>
+    <div class="tags">${groups[t].map(f => `<span class="tag ${t === 'semantic' ? 'sem' : ''}" title="${esc(f.gloss || '')}">${esc(f.w)}${f.gloss ? ` <span class="muted small">${esc(f.gloss)}</span>` : ''}</span>`).join('')}</div>`).join('')}</div>`;
+}
+function grammarHtml(it){
+  const g = it.grammar;
+  const rows = [['Predicative', g.predicative], ['Attributive', g.attributive], ['Comparison', g.comparison]].filter(r => r[1]);
+  return `<div class="sec"><h3>Grammar</h3><dl class="gram">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+    ${g.notes && g.notes.length ? `<ul>${g.notes.map(n => `<li class="small">${esc(n)}</li>`).join('')}</ul>` : ''}</div>`;
 }
 function confirmDelete(id){
   const it = getItem(id); if (!it) return;
@@ -1224,7 +1345,8 @@ function renderAdd(arg){
         <div id="bulkOut" class="small" style="margin-top:10px"></div></details>`}
       <section class="panel">
         <div class="grid2">
-          <div class="field"><label for="f_w">Adjective</label><input id="f_w" class="txt" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="e.g. zukunftsfähig" value="${esc(it.w)}">${umlautPad()}</div>
+          <div class="field"><label for="f_w">Adjective</label><input id="f_w" class="txt" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="e.g. zukunftsfähig" value="${esc(it.w)}">${umlautPad()}
+            <div class="btn-row" style="margin-top:8px"><button class="btn sm ai-btn" type="button" data-act="ai-add">Analyse with AI</button><span class="small muted">Meanings, family, examples. You review everything before it is saved.</span></div></div>
           <div class="field"><label for="f_en">Meaning in English</label><input id="f_en" class="txt" autocomplete="off" placeholder="e.g. viable for the future" value="${esc(it.en)}">
             <div class="btn-row" style="margin-top:6px"><button class="btn quiet sm" type="button" data-act="suggest-meaning">Suggest a meaning</button></div><div id="meanSg" class="sg"></div></div>
         </div>
@@ -1456,7 +1578,11 @@ async function lookupExamples(word){
       const list = (data.data || []).map(s => (s.text || '').trim()).filter(t => {
         if (t.length < 14 || t.length > 120) return false;
         const k = lc(t); if (seen.has(k)) return false; seen.add(k);
-        return !!G.findForm(t, word);
+        const f = G.findForm(t, word);
+        if (!f) return false;
+        if (f.index === 0 && /!\s*$/.test(t)) return false;           // "Entfernt diesen Satz!" is a verb
+        if (/\b(wurde|wurden|wird|werden|worden|hat|haben|hatte|habe)\b/i.test(t) && f.ending === '' && /[.!?]\s*$/.test(t) && t.trim().endsWith(f.form + '.')) return false; // passive/perfect verb
+        return true;
       });
       list.sort((a, b) => Math.abs(a.length - 60) - Math.abs(b.length - 60));
       if (list.length) return list.slice(0, 3);
@@ -1683,6 +1809,18 @@ const ACT = {
   'v-case': el => { const ex = cur(); if (ex.done) return; ex.data.cc = el.dataset.c; $('#exCard').innerHTML = exHtml(ex); },
   'v-check': () => { const ex = cur(); if (ex.done) return; const d = ex.data; const ok = d.pp === d.p && d.cc === d.c; $$('#exCard button').forEach(b => b.disabled = true); finish(ex, ok, {}); },
   'prod-check': () => handleProduce(false),
+  'm-left': el => { const ex = cur(); if (!ex || ex.done) return; ex.data.sel = +el.dataset.i; $('#exCard').innerHTML = exHtml(ex); },
+  'm-right': el => {
+    const ex = cur(); if (!ex || ex.done) return; const d = ex.data;
+    if (d.sel == null) { toast('First tap a German word.'); return; }
+    const w = d.left[d.sel], g = d.right[+el.dataset.i];
+    if (d.key[w] === g) { d.done.push(w); d.sel = null; }
+    else { d.errors++; el.classList.add('wrong'); setTimeout(() => { if (!ex.done) $('#exCard').innerHTML = exHtml(ex); }, 450); return; }
+    $('#exCard').innerHTML = exHtml(ex);
+    if (d.done.length === d.left.length) finish(ex, d.errors === 0, {errors:d.errors});
+  },
+  'tr-show': () => { const ex = cur(); if (!ex || ex.done) return; ex.data.typed = ($('#prod') && $('#prod').value.trim()) || ''; ex.data.shown = true; $('#exCard').innerHTML = exHtml(ex); const t = $('#prod'); if (t) t.value = ex.data.typed; },
+  'tr-grade': el => { const ex = cur(); if (!ex || ex.done) return; $$('#exCard button').forEach(b => b.disabled = true); finish(ex, el.dataset.ok === '1', {text:ex.data.typed}); },
   'skip': () => handleProduce(true),
   'override': () => overrideLast(),
   'ins': el => { const t = document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName) ? document.activeElement : ($('#ans') || $('#prod') || $('#f_w')); if (!t) return; const s = t.selectionStart ?? t.value.length, e = t.selectionEnd ?? t.value.length; t.value = t.value.slice(0, s) + el.dataset.ch + t.value.slice(e); t.focus(); t.setSelectionRange(s + 1, s + 1); t.dispatchEvent(new Event('input')); },

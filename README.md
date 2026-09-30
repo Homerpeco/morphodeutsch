@@ -22,6 +22,13 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
   opposites and near-synonyms, word families, words in context, prepositions + case, write your own.
 - **Patterns**: 24 building elements with meaning, rules and 150+ example words; ending tables; Partizip I/II rule.
 - **Data**: JSON backup, CSV export/import, cloud sync between devices.
+- **AI analysis** (Gemini, button on the Add form and on every word card): meanings kept apart for polysemous words
+  (entfernt: distant / removed / faint), a word family where every entry is typed as direct family, derived form,
+  compound or related in meaning, building blocks, synonyms and opposites per meaning, collocations, nouns,
+  prepositions + case, examples with translations, grammar notes, and "please confirm" flags. **Nothing is saved
+  automatically**: a review screen lets you switch each item off, edit any text, add your own examples and
+  regenerate one section (synonyms and opposites, examples, collocations, family, grammar, blocks).
+  Saved analyses add three exercises: *Which meaning?*, *Match the family* and *English to German*.
 
 ## Files
 | File | What |
@@ -31,6 +38,8 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
 | `engine.js` | grammar: declension, noun forms, block segmentation, word-formation detection, Partizip II guesses |
 | `app.js` | app: storage, sync, practice engine, screens |
 | `api/adjectives.js` | sync endpoint (Vercel Blob) |
+| `api/enrich.js`, `api/_enrich.js` | AI analysis endpoint (Gemini): prompt, validation, model fallback |
+| `review.js` | the AI review screen and how a reviewed analysis is saved |
 | `sw.js`, `manifest.webmanifest`, `icons/` | installable on the phone, works offline |
 
 Rule: every `parts` array must spell its word exactly (checked at start-up, error in the console otherwise).
@@ -47,6 +56,7 @@ Rule: every `parts` array must spell its word exactly (checked at start-up, erro
 |---|---|
 | Framework preset | Other (no build command) |
 | Storage | connect a Blob store (adds `BLOB_READ_WRITE_TOKEN`) |
+| `GEMINI_API_KEY` (env var) | Google AI Studio key for the AI analysis (`VITE_GEMINI_API_KEY` also accepted). Optional `ENRICH_MODELS` overrides the model list. |
 | `SYNC_KEY` (env var) | any password; the app asks for it once per device (`VERB_SYNC_SECRET` also accepted). **Sync stays off until it is set.** |
 
 Without a Blob store the app still works fully; the badge then says **Local only**.
