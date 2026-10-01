@@ -1,0 +1,47 @@
+{
+ "word": "entfernt", "isAdjective": true,
+ "formation": {"kind": "p2", "base": "entfernen", "affix": "p2", "parts": ["entfern","t"], "change": "", "explanation": "Partizip II of the inseparable verb entfernen (ent- + fern), used as an adjective. Because ent- is inseparable, there is no ge-.", "confidence": "high"},
+ "meanings": [
+  {"id": "m1", "gloss": "distant, remote; far away", "register": "common", "note": "Often with a measure: zwei Kilometer entfernt.",
+   "collocations": ["ein entfernter Ort", "eine entfernte Stadt", "weit entfernt sein", "entfernte Verwandte"],
+   "synonyms": [{"w": "fern", "note": "", "confidence": "high"}, {"w": "abgelegen", "note": "hard to reach", "confidence": "high"}, {"w": "weit weg", "note": "informal", "confidence": "high"}],
+   "antonyms": [{"w": "nah", "note": "", "confidence": "high"}, {"w": "nahe gelegen", "note": "", "confidence": "medium"}],
+   "nouns": ["der Ort, -e", "die Stadt, ¨-e", "der Verwandte, -n"],
+   "prepositions": [{"p": "von", "case": "D", "pattern": "weit entfernt von + Dat.", "de": "Das Büro ist nicht weit vom Bahnhof entfernt.", "en": "The office is not far from the station."}],
+   "examples": [
+    {"de": "Das Hotel liegt nur zehn Minuten vom Zentrum entfernt.", "en": "The hotel is only ten minutes from the centre.", "context": "everyday"},
+    {"de": "Unser Lager befindet sich an einem entfernten Standort.", "en": "Our warehouse is at a remote location.", "context": "work"},
+    {"de": "Wir sind von einer Lösung noch weit entfernt.", "en": "We are still far from a solution.", "context": "work"}
+   ]},
+  {"id": "m2", "gloss": "removed, taken away", "register": "context-dependent", "note": "Mostly as a result state after entfernen.",
+   "collocations": ["ein entfernter Fleck", "die entfernten Dateien", "vollständig entfernt"],
+   "synonyms": [{"w": "beseitigt", "note": "", "confidence": "high"}, {"w": "weggenommen", "note": "", "confidence": "medium"}],
+   "antonyms": [{"w": "vorhanden", "note": "", "confidence": "medium"}, {"w": "angebracht", "note": "for signs, labels", "confidence": "medium"}],
+   "nouns": ["der Fleck, -e", "die Datei, -en"],
+   "prepositions": [],
+   "examples": [
+    {"de": "Die entfernten Dateien lassen sich nicht wiederherstellen.", "en": "The removed files cannot be restored.", "context": "work"},
+    {"de": "Der Fleck ist jetzt vollständig entfernt.", "en": "The stain is now completely removed.", "context": "everyday"}
+   ]},
+  {"id": "m3", "gloss": "slight, faint (a resemblance, an idea)", "register": "formal", "note": "",
+   "collocations": ["eine entfernte Ähnlichkeit", "nicht im Entferntesten"],
+   "synonyms": [{"w": "vage", "note": "", "confidence": "medium"}, {"w": "schwach", "note": "", "confidence": "medium"}],
+   "antonyms": [{"w": "deutlich", "note": "", "confidence": "medium"}],
+   "nouns": ["die Ähnlichkeit, -en"], "prepositions": [],
+   "examples": [{"de": "Er hat eine entfernte Ähnlichkeit mit seinem Onkel.", "en": "He bears a faint resemblance to his uncle.", "context": "everyday"}]}
+ ],
+ "family": [
+  {"w": "entfernen", "type": "direct", "gloss": "to remove", "meaning": "m2", "confidence": "high", "note": ""},
+  {"w": "fern", "type": "direct", "gloss": "far, distant", "meaning": "m1", "confidence": "high", "note": "the root adjective"},
+  {"w": "die Entfernung", "type": "direct", "gloss": "distance; removal", "meaning": "", "confidence": "high", "note": ""},
+  {"w": "sich entfernen", "type": "direct", "gloss": "to move away", "meaning": "m1", "confidence": "high", "note": ""},
+  {"w": "entfernbar", "type": "derived", "gloss": "removable", "meaning": "m2", "confidence": "medium", "note": ""},
+  {"w": "die Entfernungspauschale", "type": "compound", "gloss": "commuting allowance (tax)", "meaning": "m1", "confidence": "high", "note": ""},
+  {"w": "der Entfernungsmesser", "type": "compound", "gloss": "rangefinder", "meaning": "m1", "confidence": "medium", "note": ""},
+  {"w": "entfernt", "type": "direct", "gloss": "self", "meaning": "", "confidence": "high", "note": ""},
+  {"w": "abgelegen", "type": "semantic", "gloss": "secluded", "meaning": "m1", "confidence": "high", "note": ""}
+ ],
+ "partner": {"w": "", "note": ""},
+ "grammar": {"predicative": "Der Bahnhof ist zwei Kilometer entfernt.", "attributive": "ein entfernter Ort", "comparison": "entfernter, am entferntesten", "notes": ["Distance with a measure in the accusative: zwei Kilometer entfernt.", "From where: von + dative (weit vom Zentrum entfernt).", "Idiom: nicht im Entferntesten = not in the slightest."]},
+ "uncertain": ["entfernbar exists but is mostly technical."]
+}
