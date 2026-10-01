@@ -112,7 +112,7 @@ async function inPageAudit(opts){
 
   const head = () => { const fb = $('#fbCard'); if (!fb || fb.hidden) return null; const h = $('.fb-head', fb); return h ? h.textContent.trim() : null; };
   const q = sel => $('#exCard ' + sel);
-  function tap(sel){ const el = q(sel); if (!el) throw new Error('missing element ' + sel); el.click(); }
+  function tap(sel){ const el = q(sel); if (!el) throw new Error('missing element ' + sel); S.lockUntil = 0; el.click(); }   // the tap guard is tested in the scenarios
   function start(ex){ beginSession('audit', [ex]); S.lockUntil = 0; }
   async function waitFor(fn, ms){ const t = Date.now(); while (Date.now() - t < (ms || 2500)) { if (fn()) return true; await sleep(15); } return false; }
   function solve(tray, target){
@@ -194,6 +194,11 @@ async function inPageAudit(opts){
     }
     if (ex.type === 'build' || ex.type === 'transfer') {
       const src = ex.type === 'transfer' ? d.pseudo : it;
+      if (src.kind === 'compound') F(ctx, 'compounds must not appear in the Derivation lab');
+      const expectStep2 = ((src.kind === 'suffix' || src.kind === 'p2') && src.base) || (src.kind === 'prefix' && /^(il|ir|im)$/.test(lc(src.parts[0]))) ? 'type' : 'none';
+      if (d.step2 !== expectStep2) F(ctx, `step 2 is "${d.step2}", expected "${expectStep2}"`);
+      if (d.step2 !== 'type' && !d.step1) F(ctx, 'card has nothing to answer');
+      if (d.step2 === 'type' && d.jhint && lc(d.jhint.replace(/<[^>]+>/g, '')).includes(lc(src.w))) F(ctx, 'the joint hint gives the answer away');
       if (!solve(d.tray, src.w)) F(ctx, 'the word cannot be built from the blocks');
       const ants = antonymSet(src);
       spellable(d.tray).forEach(w => {
@@ -251,23 +256,40 @@ async function inPageAudit(opts){
       case 'build': case 'transfer': {
         const src = ex.type === 'transfer' ? d.pseudo : it;
         if (d.step1) {
-          const i = plan.s1 === 'right' ? d.step1.ans : d.step1.opts.findIndex((_, k) => k !== d.step1.ans);
+          const i = plan.s1 === 'wrong' ? d.step1.opts.findIndex((_, k) => k !== d.step1.ans) : d.step1.ans;
           tap(`.opt[data-i="${i}"]`);
-          if (i === d.step1.ans) { if (!await waitFor(() => q('.tray'))) return 'no step 2 after the right element'; }
+          if (d.step2 !== 'type') break;                                  // one-step card: the element was the task
+          if (i === d.step1.ans) { if (!await waitFor(() => q('#ans'))) return 'no step 2 after the right element'; }
           else {
             await sleep(plan.watch ? 1300 : 0);
-            if (q('.tray')) return 'moved on to step 2 by itself after a wrong element';
+            if (q('#ans') || q('.tray')) return 'moved on to step 2 by itself after a wrong element';
             if (!q('#s1note')) return 'no explanation after a wrong element';
-            S.lockUntil = 0; tap('[data-act="b-step2"]');
-            if (!q('.tray') || !q('#s1note')) return 'step 2 does not keep the step-1 note';
+            tap('[data-act="b-step2"]');
+            if (!q('#ans') || !q('#s1note')) return 'step 2 does not keep the step-1 note';
           }
-          S.lockUntil = 0;
         }
-        const seq = solve(d.tray, src.w);
-        let use = seq;
-        if (plan.build === 'wrong') { use = seq.slice().reverse(); if (use.map(k => d.tray[k].t).join('') === lc(src.w) || seq.length < 2) use = seq.slice(0, -1); }
-        for (const k of use) $$('#exCard .tray .blk')[k].click();
-        tap('[data-act="b-check"]');
+        // before the first attempt nothing may give the word away: not the text, not the blocks
+        if (lc($('#exCard').textContent).includes(lc(src.w))) return 'the answer is visible before the attempt';
+        if (q('.tray')) return 'blocks visible before any hint';
+        for (let h = 0; h < (plan.hint || 0) && !q('.tray'); h++) {
+          tap('[data-act="bt-hint"]');
+          if (q('#jointHint') && lc(q('#jointHint').textContent).includes(lc(src.w))) return 'the hint gives the answer away';
+        }
+        if (plan.blocks) {
+          if (!q('.tray')) return 'no blocks after the hints';
+          const seq = solve(d.tray, src.w);
+          let use = seq;
+          if (plan.blocks === 'wrong') { use = seq.slice().reverse(); if (use.map(k => d.tray[k].t).join('') === lc(src.w) || seq.length < 2) use = seq.slice(0, -1); }
+          for (const k of use) { S.lockUntil = 0; $$('#exCard .tray .blk')[k].click(); }
+          tap('[data-act="b-check"]');
+        } else if (plan.giveUp) tap('[data-act="bt-giveup"]');
+        else {
+          for (const [n, t] of (plan.typed || []).entries()) {
+            q('#ans').value = t; tap('[data-act="bt-check"]');
+            if (!ex.done && n === 0 && !q('#tryMsg')) return 'no message after a wrong try';
+            if (!ex.done && q('#tryMsg') && lc(q('#tryMsg').textContent).includes(lc(src.w))) return 'the retry message gives the answer away';
+          }
+        }
         break;
       }
       case 'recall': case 'cloze':
@@ -306,6 +328,31 @@ async function inPageAudit(opts){
     if (got !== want) F(ctx, `${JSON.stringify(plan)} → "${got}", expected "${want}"`);
   }
 
+  // every way of answering a Derivation lab / transfer card, and the verdict it must get
+  async function labPlans(ex, ctx, full){
+    const d = ex.data, src = ex.type === 'transfer' ? d.pseudo : getItem(ex.id), w = src.w;
+    if (d.step2 !== 'type') {
+      await expect(ex, {s1:'right'}, 'Correct.', ctx);
+      await expect(ex, {s1:'wrong'}, 'Not quite.', ctx);
+      return;
+    }
+    await expect(ex, {s1:'right', typed:[w]}, 'Correct.', ctx);
+    if (!full) return;
+    const tr = w.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
+    for (const t of [' ' + w.toUpperCase() + ' ', w + '.', tr]) await expect(ex, {s1:'right', typed:[t]}, 'Correct.', ctx);
+    await expect(ex, {s1:'right', typed:['xyzq', w]}, 'Correct with help.', ctx);
+    if (d.jhint) await expect(ex, {s1:'right', hint:1, typed:[w]}, 'Correct with help.', ctx);
+    await expect(ex, {s1:'right', hint:2, blocks:'right'}, 'Correct with help.', ctx);
+    await expect(ex, {s1:'right', hint:2, blocks:'wrong'}, 'Not quite.', ctx);
+    await expect(ex, {s1:'right', typed:['xyzq', 'qzyx']}, 'Not quite.', ctx);
+    await expect(ex, {s1:'right', giveUp:true}, 'Not quite.', ctx);
+    if (d.step1) {
+      await expect(ex, {s1:'wrong', typed:[w], watch:true}, 'Half right.', ctx);
+      await expect(ex, {s1:'wrong', hint:1, typed:[w]}, 'Half right.', ctx);
+      await expect(ex, {s1:'wrong', giveUp:true}, 'Not quite.', ctx);
+    }
+  }
+
   const TYPES = ['meaningPick','recall','recall*','build','decon','family','contrast','p1p2','ending','cloze','cloze*','valency','sense','match','translate','produce'];
   for (const it of DB.items.slice()) {
     for (const T of TYPES) {
@@ -339,16 +386,9 @@ async function inPageAudit(opts){
               }
             }
             break;
-          case 'build': {
-            const watch = v === 0;
-            await expect(ex, {s1:'right', build:'right'}, 'Correct.', ctx);
-            if (d.step1) {
-              await expect(ex, {s1:'wrong', build:'right', watch}, 'Half right.', ctx);
-              await expect(ex, {s1:'wrong', build:'wrong'}, 'Not quite.', ctx);
-            }
-            await expect(ex, {s1:'right', build:'wrong'}, 'Not quite.', ctx);
+          case 'build':
+            await labPlans(ex, ctx, v === 0);
             break;
-          }
           case 'ending':
             await expect(ex, {pick:d.fr.ending}, 'Correct.', ctx);
             for (const e of ['e','en','er','es','em']) if (e !== d.fr.ending) await expect(ex, {pick:e}, 'Not quite.', ctx);
@@ -384,8 +424,7 @@ async function inPageAudit(opts){
       const ctx = `transfer ${ex.data.e.w} (${a.id})`;
       out.avail.transfer = (out.avail.transfer || 0) + 1;
       staticCheck(ex, ctx);
-      await expect(ex, {build:'right'}, 'Correct.', ctx);
-      await expect(ex, {build:'wrong'}, 'Not quite.', ctx);
+      await labPlans(ex, ctx, k < 2);
     }
   }
   // every possible step-1 option and extra block per word (the options are random, so collect them all)
@@ -394,6 +433,38 @@ async function inPageAudit(opts){
     const seen = new Set();
     for (let k = 0; k < 80; k++) { const ex = MK.build(it); (ex.data.step1 ? ex.data.step1.opts : []).forEach(o => seen.add(o)); staticCheck(ex, `${it.w} / build pool`); }
     out.avail['step1:' + it.w] = Array.from(seen).join(' ');
+  }
+  // wrong attempts are named precisely: a hint before the next try (never the answer), the reason in the feedback
+  const DIAG = [
+    ['anspruchsvoll', 'anspruchvoll', /where the two parts meet/, /linking -s was missing/],
+    ['gefährlich', 'gefahrlich', /vowel/, /a → ä/],
+    ['kostenlos', 'kostenslos', /where the two parts meet/, /no linking -s/],
+    ['belastbar', 'belastenbar', /end of the base word/, /verb stem/],
+    ['hilfreich', 'hilfereich', /end of the base word/, /shortened/],
+    ['kompliziert', 'gekompliziert', /take ge-/, /-ieren take no ge-/],
+    ['entfernt', 'geentfernt', /take ge-/, /cannot be separated/],
+    ['aufgeregt', 'geaufregt', /where ge- goes/, /after the prefix/],
+    ['aufgeregt', 'aufregt', /missing/, /ge- was missing/],
+    ['aufgeregt', 'aufregend', /Partizip I/, /Partizip I/],
+    ['illegal', 'inlegal', /prefix/, /il-/],
+    ['anspruchsvoll', 'anspruchslos', /ending/, /-los/]
+  ];
+  for (const [word, attempt, hintRe, whyRe] of DIAG) {
+    const ctx = `diagnosis ${word} ← ${attempt}`;
+    let ex = null;
+    const it = DB.items.find(i => i.w === word);
+    if (it) ex = MK.build(it);
+    else { const a = AFFIXES.find(x => x.ex.some(e => e.w === word)); const used = new Set(); for (let k = 0; k < 40 && !ex; k++) { const t = MK.transfer(a.id, used); if (!t) break; used.add(t.data.e.w); if (t.data.e.w === word) ex = t; } }
+    if (!ex || ex.data.step2 !== 'type') { F(ctx, 'no typed card for this word'); continue; }
+    start(ex);
+    if (ex.data.step1) { tap(`.opt[data-i="${ex.data.step1.ans}"]`); await waitFor(() => q('#ans')); }
+    q('#ans').value = attempt; tap('[data-act="bt-check"]');
+    const msg = q('#tryMsg') ? q('#tryMsg').textContent : '';
+    if (!hintRe.test(msg)) F(ctx, `retry message "${msg}" does not match ${hintRe}`);
+    q('#ans').value = attempt; tap('[data-act="bt-check"]');
+    const fbTxt = $('#fbCard').textContent;
+    if (!whyRe.test(fbTxt)) F(ctx, `feedback does not explain the mistake (${whyRe})`);
+    out.runs++;
   }
   quitSession();
   return out;
@@ -406,7 +477,7 @@ async function scenarios(){
   await p.goto(BASE + 'index.html#practice'); await p.waitForFunction(() => typeof DB !== 'undefined' && DB.items.length >= 17);
   const shots = process.env.SHOTS;
 
-  // 1. the reported case: anspruchsvoll, wrong element in step 1, then a correct build
+  // 1. the reported case: anspruchsvoll, wrong element in step 1, then the word written correctly
   await p.evaluate(() => { const it = DB.items.find(i => i.w === 'anspruchsvoll'); let ex; do { ex = MK.build(it); } while (!ex.data.step1.opts.includes('lich')); beginSession('build', [ex]); });
   await p.waitForTimeout(500);
   const lichIdx = await p.evaluate(() => cur().data.step1.opts.indexOf('lich'));
@@ -418,13 +489,14 @@ async function scenarios(){
   ok(await p.$eval(`#exCard .opt[data-i="${lichIdx}"]`, b => b.classList.contains('wrong')), 'chosen element is marked wrong');
   if (shots) await p.screenshot({path: shots + '/s1-wrong.png'});
   await p.tap('[data-act="b-step2"]'); await p.waitForTimeout(500);
-  ok(await p.$('#exCard .tray') && await p.$('#s1note'), 'step 2 shows the blocks and keeps the note');
-  for (const t of ['anspruch', 's', 'voll']) { await p.tap(`#exCard .tray .blk:not(.used):text-is("${t}")`); await p.waitForTimeout(60); }
-  await p.tap('[data-act="b-check"]');
+  ok(await p.$('#exCard #ans') && await p.$('#s1note'), 'step 2 asks to write the word and keeps the note');
+  ok(!(await p.$('#exCard .tray')) && !(await p.textContent('#exCard')).toLowerCase().includes('anspruchsvoll'), 'step 2 shows no blocks and not the answer');
+  if (shots) await p.screenshot({path: shots + '/s2-typed.png'});
+  await p.fill('#ans', 'anspruchsvoll'); await p.tap('[data-act="bt-check"]');
   const h1 = await p.textContent('#fbCard .fb-head');
-  ok(h1.trim() === 'Half right.', 'correct build after a wrong element = Half right. (got ' + h1 + ')');
+  ok(h1.trim() === 'Half right.', 'right word after a wrong element = Half right. (got ' + h1 + ')');
   const fbTxt = await p.textContent('#fbCard');
-  ok(/Step 1/.test(fbTxt) && /You chose -lich/.test(fbTxt) && /Step 2/.test(fbTxt) && /built the word correctly/.test(fbTxt), 'feedback explains both steps');
+  ok(/Step 1/.test(fbTxt) && /You chose -lich/.test(fbTxt) && /Step 2\s*Right\./.test(fbTxt) && /Anspruch/.test(fbTxt) && /Example/.test(fbTxt), 'feedback explains both steps and shows the formation and an example');
   if (shots) await p.screenshot({path: shots + '/s1-half.png'});
   await p.tap('[data-act="override"]');
   ok((await p.textContent('#fbCard .fb-head')).trim() === 'Counted as correct.', 'mis-tap override counts it');
@@ -456,7 +528,7 @@ async function scenarios(){
   const ans = await p.evaluate(() => cur().data.step1.ans);
   await p.dblclick(`#exCard .opt[data-i="${ans}"]`);
   await p.waitForTimeout(700);
-  ok(await p.evaluate(() => cur().data.s1 === true && !!$('#exCard .tray') && cur().data.built.length === 0), 'double tap on the element: counted once, no block added');
+  ok(await p.evaluate(() => cur().data.s1 === true && !!$('#exCard #ans') && !cur().done && cur().data.attempts.length === 0), 'double tap on the element: counted once, step 2 untouched');
 
   // 4. leaving during the step-1 pause causes no error
   await p.evaluate(() => { const it = DB.items.find(i => i.w === 'gefährlich'); beginSession('build', [MK.build(it)]); });
@@ -465,30 +537,37 @@ async function scenarios(){
   await p.tap('[data-act="quit"]');
   await p.waitForTimeout(700);
 
-  // 5. review: half right moves the word down one box, a real build mistake sends it to box 1
+  // 5. review: the box rules. Right → up one; right with help → stays; half right → down one; wrong → box 1
   const srs = await p.evaluate(async () => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const it = DB.items.find(i => i.w === 'anspruchsvoll');
-    const run = async (s1Right, buildRight) => {
+    const run = async (s1Right, how) => {
       it.srs.box = 3; it.srs.due = Date.now() - 1000; it.srs.n = 2;
-      let ex; do { ex = MK.build(it); } while (!ex.data.step1);
+      const ex = MK.build(it);
       beginSession('review', [Object.assign(ex, {graded:true})]); S.lockUntil = 0;
       const d = ex.data;
       $(`#exCard .opt[data-i="${s1Right ? d.step1.ans : (d.step1.ans + 1) % d.step1.opts.length}"]`).click();
       if (s1Right) await sleep(520); else { S.lockUntil = 0; $('[data-act="b-step2"]').click(); }
       S.lockUntil = 0;
-      const order = buildRight ? ['anspruch','s','voll'] : ['voll','s','anspruch'];
-      for (const t of order) { const i = d.tray.findIndex((c, k) => c.t === t && !d.built.includes(k)); $$('#exCard .tray .blk')[i].click(); }
-      $('#exCard [data-act="b-check"]').click();
-      const r = {head:$('#fbCard .fb-head').textContent, box:it.srs.box, k:DB.events[DB.events.length - 1].k};
-      nextCard();
+      if (how === 'hint') { $('#exCard [data-act="bt-hint"]').click(); S.lockUntil = 0; }
+      if (how === 'giveup') $('#exCard [data-act="bt-giveup"]').click();
+      else { $('#ans').value = 'anspruchsvoll'; $('#exCard [data-act="bt-check"]').click(); }
+      const r = {head:$('#fbCard .fb-head').textContent, box:it.srs.box, k:(DB.events[DB.events.length - 1] || {}).k, due:Math.round((it.srs.due - Date.now()) / 86400000)};
+      endSession();                          // (a correct build may queue a transfer card, so end here to see the summary)
       r.summary = $('.summary') ? $('.summary').textContent : '';
       return r;
     };
-    return {half: await run(false, true), wrong: await run(true, false)};
+    return {right: await run(true, 'type'), helped: await run(true, 'hint'), half: await run(false, 'type'), wrong: await run(true, 'giveup')};
   });
-  ok(srs.half.head === 'Half right.' && srs.half.box === 2 && srs.half.k === 'element' && /Chose the wrong building element/.test(srs.half.summary), 'review: half right → box 3 to 2, listed as element mistake ' + JSON.stringify({...srs.half, summary:undefined}));
-  ok(srs.wrong.head === 'Not quite.' && srs.wrong.box === 1, 'review: wrong build → box 1 ' + JSON.stringify({...srs.wrong, summary:undefined}));
+  const strip = r => JSON.stringify({...r, summary:undefined});
+  ok(srs.right.head === 'Correct.' && srs.right.box === 4, 'review: right → box 3 to 4 ' + strip(srs.right));
+  ok(srs.helped.head === 'Correct with help.' && srs.helped.box === 3 && /with help/.test(srs.helped.summary), 'review: right with a hint → stays in box 3, counted "with help" ' + strip(srs.helped));
+  ok(srs.half.head === 'Half right.' && srs.half.box === 2 && srs.half.k === 'element' && /Chose the wrong building element/.test(srs.half.summary), 'review: half right → box 3 to 2, listed as element mistake ' + strip(srs.half));
+  ok(srs.wrong.head === 'Not quite.' && srs.wrong.box === 1, 'review: "I don\'t know" → box 1 ' + strip(srs.wrong));
+
+  // one-step cards and compounds
+  const kinds = await p.evaluate(() => ({un:MK.build(DB.items.find(i => i.w === 'ungewöhnlich')).data.step2, p1:MK.build(DB.items.find(i => i.w === 'aufregend')).data.step2, compound:MK.build(DB.items.find(i => i.w === 'selbstständig'))}));
+  ok(kinds.un === 'none' && kinds.p1 === 'none' && kinds.compound === null, 'un- and Partizip I end after step 1; compounds are not in the lab ' + JSON.stringify(kinds));
 
   // 6. keyboard: Enter twice / held key moves on exactly one card
   const k = await newPage();
@@ -504,6 +583,13 @@ async function scenarios(){
   await k.keyboard.press('Enter'); await k.waitForTimeout(500);
   await k.keyboard.press('2');
   ok(await k.evaluate(() => S.i === 2 && !!cur().done), 'number keys answer after the pause');
+  await k.evaluate(() => { const it = DB.items.find(i => i.w === 'zukunftsfähig'); beginSession('build', [MK.build(it)]); });
+  await k.waitForTimeout(500);
+  await k.keyboard.press(String(await k.evaluate(() => cur().data.step1.ans + 1)));
+  await k.waitForSelector('#ans'); await k.waitForTimeout(450);
+  ok(await k.evaluate(() => document.activeElement && document.activeElement.id === 'ans'), 'step 2 puts the cursor in the answer box');
+  await k.keyboard.type('zukunftsfähig'); await k.keyboard.press('Enter');
+  ok((await k.textContent('#fbCard .fb-head')).trim() === 'Correct.', 'typing the word and pressing Enter answers step 2');
 }
 
 // ---------- run ----------
