@@ -17,7 +17,7 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
 - **Family-aware repetition**: a forgotten word goes back to box 1 and gets two follow-up questions later in the same
   session; a family or usage slip only moves it down one box; related words (same element or same family) are brought
   forward to tomorrow instead of being failed with it. Stats separate *forgot the word*, *family*, *usage* and *transfer* mistakes.
-- **Drills** (do not move boxes): Derivation lab (step 1: pick the element; step 2: assemble the blocks) with transfer challenges (build words you have never seen from a known
+- **Drills** (do not move boxes): Derivation lab (see below) with transfer challenges (write words you have never seen from a known
   pattern), Partizip I vs II (37 sentences), adjective endings (generated from the nouns, incl. n-declension and plurals),
   opposites and near-synonyms, word families, words in context, prepositions + case, write your own.
 - **Patterns**: 24 building elements with meaning, rules and 150+ example words; ending tables; Partizip I/II rule.
@@ -30,14 +30,28 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
   regenerate one section (synonyms and opposites, examples, collocations, family, grammar, blocks).
   Saved analyses add three exercises: *Which meaning?*, *Match the family* and *English to German*.
 
+## Derivation lab
+- **Step 1: choose the element** (-voll, -lich, Partizip I or II, un- or in- …) for the meaning shown.
+- **Step 2: write the word yourself** from the base word and the element (der Anspruch + -voll → type *anspruchsvoll*).
+  Nothing on the card shows the answer or its pieces before your attempt; if the English meaning would spell the word
+  (illegal, kompetent ≈ competent), step 2 leaves it out.
+- **Hints, in order:** *Need a hint?* names what happens at the joint (linking -s, umlaut, the -e or -en that drops, where
+  ge- goes, il-/ir-) → *Show the blocks* (the old block assembly) → *I don't know*. A first wrong try gets a short pointer
+  ("Something is missing where the two parts meet") and one more try; the feedback then names the mistake.
+- **Only where writing is a real decision:** suffix words, Partizip II and in- words that change to il-/ir-/im-. Words with
+  un-, hoch-, inter- or plain in- and Partizip I end after step 1 (writing them would only copy the two parts), and
+  compounds (selbstständig) are practised in the other exercises, not here. Transfer challenges follow the same rule.
+- **Scoring:** right without help → Correct (up one box); with a hint, the blocks or a second try → **Correct with help**
+  (box unchanged, same interval again); wrong element but word right → Half right (down one box); wrong or *I don't know*
+  → Not quite (box 1). The feedback shows the formation (der Anspruch + s + voll = anspruchsvoll) and an example sentence.
+
 ## Reliability rules (answer keys)
 - **Every question has exactly one right answer.** Wrong options never mean the same as the right one (English glosses are
   compared), are never a listed synonym, opposite or family member, and in the Derivation lab a wrong element is never one that
   builds a real word with the same base (opposites excepted) or that can mean the same (-los/-frei, -voll/-reich/-ig,
-  -voll/-haft, -haft/-lich, -bar/-lich/-sam, -al/-ell, un-/in-).
-- **Derivation lab in two visible steps.** A wrong element in step 1 stays on screen with the right one and its meaning until
-  you tap *Now build the word*; step 2 keeps that note. A correct build after a wrong element is **Half right.**
-  (word moves down one box, not back to box 1; listed as *Chose the wrong building element*), and a mis-tap can be counted.
+  -voll/-haft, -haft/-lich, -bar/-lich/-sam, -al/-ell). Step 1 always shows the meaning, which keeps the choice unambiguous.
+- **A wrong element stays on screen** with the right one and its meaning until you tap *Now write the word*; step 2 keeps
+  that note. Half right is listed as *Chose the wrong building element*, and a mis-tap can be counted.
 - **No carried-over taps.** For 0.4 s after a new card or step appears, taps and number/Enter keys on it are ignored, and held
   keys never repeat an answer. Each step can be answered once only.
 - **Typed answers** ignore case, spaces, quotes and end punctuation, and accept ae/oe/ue/ss. A real synonym typed in *Recall*
@@ -49,8 +63,11 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
 `node tests/answer-key-audit.mjs` (Playwright + Chromium). It builds a deck (starter words, an AI-analysed word from
 `tests/fixture-entfernt.json`, 20 words typed into the Add form), then answers every exercise type for every word right and
 wrong through the page (about 4,600 answers), checks the grammar of every ending question against its own declension
-tables, and replays the reported bugs on a phone-sized screen (wrong element then correct build; double tap on Continue;
-double tap on an element; Enter pressed twice; held keys). Exit code 0 = all passed.
+tables, checks that no lab card shows its answer before the attempt, answers every lab card every way (typed, with
+case/punctuation/ae-oe-ue variants, second try, hint, blocks, *I don't know*, wrong element), checks that twelve typical
+joint mistakes are named correctly, and replays the reported bugs on a phone-sized screen (wrong element then the right
+word; double tap on Continue; double tap on an element; Enter pressed twice; held keys; the box rules in a review).
+Exit code 0 = all passed.
 Optional `DICT=…/dictionary-de/index.dic` lists wrong options that are real German words for a manual look.
 
 ## Files

@@ -379,10 +379,10 @@ function distractFrom(correct, pools, n, exclude){
 // with the same base is never offered as a wrong option: the learner could be right with it.
 const REAL_ALSO = new Set(['gefahrvoll','zukunftsreich','zukunftreich','ernstlich','meisterlich','sündig','biegbar','verstehbar','erklärlich',
   'empfindsam','unstabil','unkorrekt','inkorrekt','unakzeptabel','inakzeptabel','unkonsequent','unflexibel','inflexibel','unproduktiv',
-  'untolerant','unrelevant','unaktiv','unkompetent','unhuman','inhuman','unexakt','inexakt','unintelligent','ineffizient','uneffizient',
+  'unrelevant','unhuman','inhuman','unexakt','inexakt','unintelligent','ineffizient','uneffizient',
   'intransparent','untransparent','unmobil','immobil','regelhaft','gefahrreich','gefahrenreich','belastungsfähig']);
 // elements that can mean the same thing: never offered against each other
-const SYN_GROUPS = [['los','frei'], ['voll','reich','ig'], ['voll','haft'], ['haft','lich'], ['bar','lich','sam'], ['al','ell'], ['un','in']];
+const SYN_GROUPS = [['los','frei'], ['voll','reich','ig'], ['voll','haft'], ['haft','lich'], ['bar','lich','sam'], ['al','ell']];
 const synonymElements = id => new Set(SYN_GROUPS.filter(g => g.includes(id)).flat().filter(x => x !== id));
 function knownWordSet(){
   const s = new Set(REAL_ALSO);
@@ -450,18 +450,26 @@ const MK = {
     return {type:'recall', id:it.id, typed:false, data:{opts, ans:opts.indexOf(it.w)}};
   },
   build(it){
-    if (!['suffix','prefix','p1','p2','compound'].includes(it.kind) || it.parts.length < 2 || !G.partsValid(it)) return null;
+    // compounds are not built here: with no element to choose, the card would only reorder two visible blocks
+    if (!['suffix','prefix','p1','p2'].includes(it.kind) || it.parts.length < 2 || !G.partsValid(it)) return null;
     const data = buildData(it);
-    return data ? {type:'build', id:it.id, data} : null;
+    if (!data.step1 && data.step2 !== 'type') return null;
+    return {type:'build', id:it.id, data};
   },
   transfer(affixId, used){
     const a = affixInfo(affixId); if (!a || !a.ex.length) return null;
     const inDeck = new Set(deckWords().map(lc));
     const cand = a.ex.filter(e => !inDeck.has(lc(e.w)) && !(used && used.has(e.w)));
-    if (!cand.length) return null;
-    const e = pick(cand);
-    const pseudo = {w:e.w, parts:e.parts, kind:a.kind, affix:a.id, base:e.base, change:e.change || '', en:e.en};
-    return {type:'transfer', id:null, data:Object.assign(buildData(pseudo, true), {e, affix:a.id, pseudo})};
+    // a new word from the same pattern: write it (suffixes, Partizip II, il-/ir-), or, where writing would only be
+    // copying the two parts (un-, hoch-, inter-, Partizip I), choose the element for it
+    for (const e of shuffle(cand)) {
+      const pseudo = {w:e.w, parts:e.parts, kind:a.kind, affix:a.id, base:e.base, change:e.change || '', en:e.en};
+      const typed = step2Kind(pseudo) === 'type';
+      const data = buildData(pseudo, typed);
+      if (!typed && !data.step1) continue;
+      return {type:'transfer', id:null, data:Object.assign(data, {e, affix:a.id, pseudo})};
+    }
+    return null;
   },
   decon(it){
     if (!['suffix','prefix','p1','p2'].includes(it.kind) || !it.base) return null;
@@ -628,6 +636,7 @@ function buildData(it, noStep1){
   if (it.kind === 'p1') { if (!has('t')) extra.push({t:'t', r:'suf'}); if (!has('ge')) extra.push({t:'ge', r:'ge'}); }
   if (it.kind === 'p2') { if (!has('d')) extra.push({t:'d', r:'suf'}); if (!has('ge')) extra.push({t:'ge', r:'ge'}); else extra.push({t:'en', r:'suf'}); }
   if (it.kind === 'prefix') {
+    if (it.affix === 'in' && seg[0][0] !== 'in' && !has('in')) extra.push({t:'in', r:'pre'});   // il-/ir-: the unchanged in- is the trap
     const syn = synonymElements(it.affix);
     const alts = ['un','in','miss','ur'].filter(p => p !== seg[0][0] && p !== it.affix && !syn.has(p) && safeElement(it, p, 'prefix', known, ants));
     const alt = alts.length ? pick(alts) : null;
@@ -657,12 +666,104 @@ function buildData(it, noStep1){
       step1 = {opts, ans:opts.indexOf(correct)};
     }
   }
-  return {tray, step1, built:[], s1:null, s1ack:false};
+  // step 2: write the word (hint 1 = joint hint, hint 2 = the blocks); attempts = wrong tries so far
+  return {tray, step1, built:[], s1:null, s1ack:false, step2:step2Kind(it), jhint:jointHint(it), hint:0, attempts:[], val:'', msg:''};
 }
 function optLabel(id){
   if (id === 'p1') return 'Partizip I (+d)';
   if (id === 'p2') return 'Partizip II (ge-…-t)';
   const a = affixInfo(id); return a ? a.form : id;
+}
+
+/* ----- derivation lab, step 2: write the word ----- */
+// Typed only where forming the word is a real decision (linking -s, umlaut, verb stem, ge-, il-/ir-).
+// Where it would only mean copying the two visible parts (un-, hoch-, inter-, Partizip I) the card ends after step 1.
+function step2Kind(src){
+  if ((src.kind === 'suffix' || src.kind === 'p2') && src.base && !/\+/.test(src.base)) return 'type';
+  if (src.kind === 'prefix' && src.affix === 'in' && /^(il|ir|im)$/.test(lc((src.parts || [])[0] || ''))) return 'type';
+  return 'none';
+}
+function editDistance(a, b){
+  const m = a.length, n = b.length, row = Array.from({length:n + 1}, (_, j) => j);
+  for (let i = 1; i <= m; i++) { let prev = row[0]; row[0] = i; for (let j = 1; j <= n; j++) { const t = row[j]; row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = t; } }
+  return row[n];
+}
+// the English meaning gives the German word away (illegal = illegal, competent ≈ kompetent): then the card does not show it
+function revealsWord(en, w){
+  const fw = fold(lc(w));
+  return lc(en || '').split(/[^a-z]+/).some(t => t && (fold(t) === fw || (fw.length >= 6 && Math.abs(t.length - fw.length) <= 2 && editDistance(t, fw) <= 2)));
+}
+const INSEP_PRE = ['miss','emp','ent','zer','ver','be','er','ge','über','unter','hinter','wider'];
+const normAns = s => fold(cleanAnswer(s)).replace(/ae/g, 'a').replace(/oe/g, 'o').replace(/ue/g, 'u');
+function segParts(src){
+  const seg = G.segment(src);
+  return {seg, stem:seg.filter(x => x[1] === 'base').map(x => x[0]).join(''), fug:seg.filter(x => x[1] === 'fug').map(x => x[0]).join(''), suf:seg[seg.length - 1][0]};
+}
+// first hint: what happens where the two parts meet, without giving the word away
+function jointHint(src){
+  const baseFull = lc(stripArt(src.base || ''));
+  if (src.kind === 'suffix' && baseFull) {
+    const {stem, fug, suf} = segParts(src);
+    const isNoun = /^(der|die|das)\s/i.test(src.base || '');
+    const out = [];
+    if (fug) out.push(`a linking <b>-${esc(fug)}</b> goes between the two parts`);
+    const fb = fold(baseFull), fs = fold(lc(stem));
+    if (lc(stem) !== baseFull && fs === fb) out.push(`the vowel changes (<b>${esc(src.change || 'it takes an umlaut')}</b>)`);
+    else if (fs !== fb) {
+      if (fb.startsWith(fs) && !isNoun) out.push(`-${esc(suf)} joins the verb stem: the infinitive loses <b>-${esc(baseFull.slice(stem.length))}</b>`);
+      else if (fb.startsWith(fs)) out.push(`the noun loses its ending <b>-${esc(baseFull.slice(stem.length))}</b>`);
+      else out.push('the base word changes its form');
+      if (src.change && fold(src.change) !== src.change) out.push(`the vowel changes (<b>${esc(src.change)}</b>)`);
+    }
+    if (!out.length) return isNoun ? 'No linking -s and no other change: just join the two parts.' : 'Nothing changes: just join the two parts.';
+    const txt = out.join('; ');
+    return txt.charAt(0).toUpperCase() + txt.slice(1) + (fug || !isNoun ? '.' : '. No linking -s.');
+  }
+  if (src.kind === 'p2') {
+    const parts = src.parts.map(lc), gi = parts.indexOf('ge'), end = `the form ends in <b>-${esc(parts[parts.length - 1])}</b>`;
+    if (gi > 0) return `Separable verb: <b>ge-</b> goes between <b>${esc(parts.slice(0, gi).join(''))}-</b> and the stem; ${end}.`;
+    if (gi === 0) return `<b>ge-</b> comes first, then the stem; ${end}.`;
+    if (/ieren$/.test(baseFull)) return `Verbs in -ieren take no ge-; ${end}.`;
+    const pre = INSEP_PRE.find(x => baseFull.startsWith(x));
+    return pre ? `<b>${esc(pre)}-</b> cannot be separated, so there is no ge-; ${end}.` : `Think about ge- and the ending; ${end}.`;
+  }
+  if (src.kind === 'prefix' && src.affix === 'in') return 'in- changes to match the next sound: <b>il-</b> before l, <b>ir-</b> before r, <b>im-</b> before m, b and p.';
+  return '';
+}
+// a wrong attempt: what went wrong at the joint. hint = said before the next try (no answer), why = said in the feedback.
+function jointDiagnosis(src, typed){
+  const t = normAns(typed), w = lc(src.w);
+  if (!t || sameAnswer(typed, src.w)) return null;
+  const baseFull = lc(stripArt(src.base || ''));
+  const ct = cleanAnswer(typed);
+  if (t === normAns(w)) {
+    return /[äöü]/.test(w) && !/[äöü]|ae|oe|ue/.test(ct)
+      ? {hint:'Close. Check the vowel of the base word.', why:`The vowel changes here: <b>${esc(src.change || 'it takes an umlaut')}</b>.`}
+      : {hint:'Close. Check the vowels.', why:'No umlaut in this word.'};
+  }
+  if (src.kind === 'suffix') {
+    const {stem, fug, suf} = segParts(src);
+    if (fug && t === normAns(stem + suf)) return {hint:'Close. Something is missing where the two parts meet.', why:`The linking <b>-${esc(fug)}</b> was missing: ${esc(stem)} + <b>${esc(fug)}</b> + ${esc(suf)}.`};
+    if (!fug && ['s','es'].some(f => t === normAns(stem + f + suf))) return {hint:'Close. Look again at where the two parts meet.', why:'This word takes no linking -s.'};
+    if (baseFull && fold(baseFull) !== fold(lc(stem)) && ['', 's', 'es', fug].some(f => t === normAns(baseFull + f + suf))) {
+      const isNoun = /^(der|die|das)\s/i.test(src.base || '');
+      return {hint:'Close. Check the end of the base word.', why: isNoun ? `The base word is shortened before -${esc(suf)}: <b>${esc(stem)}-</b>.` : `-${esc(suf)} joins the verb stem <b>${esc(stem)}-</b>, not the whole infinitive.`};
+    }
+    const other = AFFIXES.find(x => x.kind === 'suffix' && x.id !== src.affix && t.endsWith(normAns(x.id)) && t.length > x.id.length + 2);
+    if (other) return {hint:'Not yet. Check the ending.', why:`That ending is ${esc(other.form)}; this word takes ${esc(optLabel(src.affix))}.`};
+  }
+  if (src.kind === 'p2') {
+    const parts = src.parts.map(lc), gi = parts.indexOf('ge');
+    if (gi >= 0 && t === normAns(parts.filter((x, i) => i !== gi).join(''))) return {hint:'Close. Something is missing.', why:'<b>ge-</b> was missing.'};
+    if (gi > 0 && t === normAns('ge' + parts.filter((x, i) => i !== gi).join(''))) return {hint:'Close. Check where ge- goes.', why:`With a separable verb, ge- goes after the prefix: ${esc(parts.slice(0, gi).join(''))}<b>ge</b>${esc(parts.slice(gi + 1).join(''))}.`};
+    if (gi < 0 && t === normAns('ge' + w)) {
+      const pre = INSEP_PRE.find(x => baseFull.startsWith(x));
+      return {hint:'Close. Does this verb take ge-?', why: /ieren$/.test(baseFull) ? 'Verbs in -ieren take no ge-.' : `${esc(pre || 'This prefix')}- cannot be separated, so there is no ge-.`};
+    }
+    if (/d$/.test(t) && (t === normAns(baseFull + 'd') || t === normAns(w.replace(/(e?t|en)$/, '') + 'end'))) return {hint:'Not yet. That looks like Partizip I.', why:'That is Partizip I (-d). This card asks for Partizip II.'};
+  }
+  if (src.kind === 'prefix' && src.affix === 'in' && t === normAns('in' + baseFull)) return {hint:'Close. Check the prefix: it changes before some letters.', why:'in- becomes <b>il-</b> before l, <b>ir-</b> before r and <b>im-</b> before m, b and p.'};
+  return null;
 }
 
 /* choosing an exercise for an item */
@@ -790,10 +891,11 @@ function nextCard(){
 }
 
 /* grading */
-function applySrs(it, correct, sk, partial){
+function applySrs(it, correct, sk, partial, helped){
   const s = it.srs, now = Date.now();
   s.n++; s.last = now;
-  if (correct) { s.ok++; s.box = Math.min(6, s.box + 1); }
+  if (correct && helped) { /* right with help: the word keeps its box and comes back after the same interval */ }
+  else if (correct) { s.ok++; s.box = Math.min(6, s.box + 1); }
   else if (CAT_OF[sk] === 'direct' && !partial) s.box = 1;
   else s.box = Math.max(1, s.box - 1);
   s.due = s.box === 1 ? now : today0() + INTERVAL[s.box] * DAY;
@@ -820,18 +922,19 @@ function finish(ex, correct, info){
   ex.nEvents = DB.events.length;
   if (correct !== null) {
     const partial = !correct && !!ex.info.partial;
+    const helped = !!correct && !!ex.info.helped && !ex.info.overridden;
     const cat = partial ? 'element' : (CAT_OF[sk] || 'usage');
-    S.results.push({type:ex.type, id:ex.id, correct, sk, cat, partial, follow:!!ex.follow});
+    S.results.push({type:ex.type, id:ex.id, correct, sk, cat, partial, helped, follow:!!ex.follow});
     DB.log[dateKey()] = (DB.log[dateKey()] || 0) + 1;
     if (it && sk && sk !== 'transfer') {
       const s = it.skills[sk] || {n:0, ok:0, t:0};
-      s.n++; if (correct) s.ok++; s.t = now; it.skills[sk] = s;
+      s.n++; if (correct && !helped) s.ok++; s.t = now; it.skills[sk] = s;
       it.lastSkill = sk;
-      if (ex.graded && !S.gradedIds.has(it.id)) { S.gradedIds.add(it.id); applySrs(it, correct, sk, partial); }
+      if (ex.graded && !S.gradedIds.has(it.id)) { S.gradedIds.add(it.id); applySrs(it, correct, sk, partial, helped); }
       touch(it);
     }
     const affix = ex.type === 'transfer' ? ex.data.affix : (ex.type === 'build' && it ? it.affix : null);
-    if (affix) { const p = DB.patterns[affix] || {n:0, ok:0, t:0}; p.n++; if (correct) p.ok++; p.t = now; DB.patterns[affix] = p; }
+    if (affix) { const p = DB.patterns[affix] || {n:0, ok:0, t:0}; p.n++; if (correct && !helped) p.ok++; p.t = now; DB.patterns[affix] = p; }
     if (!correct) {
       DB.events.push({t:now, id:ex.id || ('lib:' + (ex.data && ex.data.e ? ex.data.e.w : '')), k:cat, s:sk, a:affix || (it && it.affix) || ''});
       if (DB.events.length > 800) DB.events = DB.events.slice(-800);
@@ -889,7 +992,7 @@ function renderPracticeHome(){
   const count = t => DB.items.filter(it => makeFor(t, it)).length;
   const lib = allLibraryWords().length;
   const MODS = [
-    {id:'build', title:'Derivation lab', p:'Pick the building element, then assemble the word from blocks.', demo:`${blk('zukunft','base','sm')}${blk('s','fug','sm')}${blk('fähig','suf','sm')}`, n:`${count('build')} of your words, plus ${lib} pattern words`},
+    {id:'build', title:'Derivation lab', p:'Pick the building element, then write the word yourself.', demo:`${blk('zukunft','base','sm')}${blk('s','fug','sm')}${blk('fähig','suf','sm')}`, n:`${count('build')} of your words, plus ${lib} pattern words`},
     {id:'p1p2', title:'Partizip I or II?', p:'Does it cause the feeling, or does someone feel it?', demo:`<span class="word">aufreg<span class="m-suf">end</span></span><span class="muted">or</span><span class="word">auf<span class="m-ge">ge</span>reg<span class="m-suf">t</span></span>`, n:`${PPAIRS.reduce((a, p) => a + p.items.length, 0)} sentences`},
     {id:'ending', title:'Adjective endings', p:'Add -e, -en, -er, -es or -em in real phrases.', demo:`<span class="word">für eine zukunftsfähig<span class="m-suf">e</span> Strategie</span>`, n:`${count('ending')} words with nouns`},
     {id:'contrast', title:'Opposites and near-synonyms', p:'Tell a word apart from its neighbours.', demo:`<span class="word">anspruchs<span class="m-suf">voll</span></span><span class="muted">vs</span><span class="word">anspruchs<span class="m-suf">los</span></span>`, n:`${count('contrast')} words`},
@@ -998,40 +1101,58 @@ function exHtml(ex){
     case 'build':
     case 'transfer': {
       const src = ex.type === 'transfer' ? d.pseudo : it;
+      const typedStep = d.step2 === 'type';
+      const twoSteps = !!(d.step1 && typedStep);
       const step1Pending = !!(d.step1 && d.s1 === null);
-      // the step-1 result stays on screen until the learner moves on; a wrong pick is never auto-advanced
-      const step1Review = !!(d.step1 && d.s1 === false && !d.s1ack);
-      const elemLabel = src.kind === 'p1' ? 'Partizip I (+d)' : src.kind === 'p2' ? 'Partizip II' : affixLabel(src);
+      // a wrong element stays on screen until the learner moves on; one-step cards keep their options after answering
+      const step1Review = !!(twoSteps && d.s1 === false && !d.s1ack);
+      const step1Shown = !!(d.step1 && (step1Pending || step1Review || !typedStep));
+      const elemLabel = affixLabel(src);
       const elemBlk = step1Pending ? '<span class="slot">?</span>' : blk(elemLabel, src.kind === 'prefix' ? 'pre' : (src.kind === 'p2' ? 'ge' : 'suf'));
-      let eq;
       const baseShown = src.base || (G.segment(src).find(sg => sg[1] === 'base') || [])[0] || '?';   // no base word saved: show the stem block
-      if (src.kind === 'prefix') eq = `${elemBlk}<span class="plus">+</span>${blk(baseShown, 'base')}`;
-      else if (src.kind === 'compound') eq = G.segment(src).map(([t, r]) => blk(t, r)).join('<span class="plus">+</span>');
-      else eq = `${blk(baseShown, 'base')}<span class="plus">+</span>${elemBlk}`;
-      const q = ex.type === 'transfer'
-        ? `Same pattern, new word. Build the adjective that means <b>${esc(src.en)}</b>.`
-        : (step1Pending || step1Review
-          ? `<span class="step-tag">Step 1 of 2</span> ${src.kind === 'p1' || src.kind === 'p2' ? `Which form of <b>${esc(src.base)}</b> means <b>${esc(src.en)}</b>?` : `Which building element makes an adjective meaning <b>${esc(src.en)}</b>?`}`
-          : `${d.step1 ? '<span class="step-tag">Step 2 of 2</span> ' : ''}Now assemble <b>${esc(src.en)}</b> from the blocks, in order.`);
+      const eq = src.kind === 'prefix' ? `${elemBlk}<span class="plus">+</span>${blk(baseShown, 'base')}` : `${blk(baseShown, 'base')}<span class="plus">+</span>${elemBlk}`;
+      const meaning = `<b>${esc(src.en)}</b>`;
+      const cognate = revealsWord(src.en, src.w);                   // then step 2 leaves the meaning out (it would spell the word)
+      const means = cognate ? '' : ` that means ${meaning}`;
+      const tag = n => twoSteps ? `<span class="step-tag">Step ${n} of 2</span> ` : '';
+      let q;
+      if (step1Shown) {
+        // step 1 always shows the meaning: it is what makes the element choice unambiguous (hochaktiv vs inaktiv)
+        q = tag(1) + (src.kind === 'p1' || src.kind === 'p2' ? `Which form of <b>${esc(src.base)}</b> means ${meaning}?`
+          : src.kind === 'prefix' ? `Which prefix does <b>${esc(src.base)}</b> take to mean ${meaning}?`
+          : `Which building element makes an adjective meaning ${meaning}?`);
+      } else if (d.hint >= 2) q = `${tag(2)}Put the blocks in order to make the adjective${means}.`;
+      else if (ex.type === 'transfer') q = `Same pattern, new word. Write the adjective${means}.`;
+      else q = `${tag(2)}Now write the adjective${means}.`;
       let body = `<div class="eq">${eq}</div>`;
       const s1Note = () => {
         const right = d.step1.opts[d.step1.ans], a = affixInfo(right);
         return `You chose <b>${esc(optLabel(d.step1.opts[d.picked]))}</b>. The element is <b>${esc(optLabel(right))}</b>${a && a.meaning ? ` (${esc(a.meaning)})` : ''}.`;
       };
-      if (step1Pending || step1Review) {
+      if (step1Shown) {
+        const answered = d.s1 !== null;
         body += `<div class="opts">${d.step1.opts.map((o, i) => {
-          const cls = step1Review ? (i === d.step1.ans ? 'right' : (i === d.picked ? 'wrong' : '')) : '';
-          return `<button class="opt ${cls}" data-act="b-step1" data-i="${i}" ${step1Review ? 'disabled' : ''}><span class="k">${i + 1}</span><span class="${(o === 'p1' || o === 'p2') ? '' : 'word'}">${esc(optLabel(o))}</span></button>`;
+          const cls = answered ? (i === d.step1.ans ? 'right' : (i === d.picked ? 'wrong' : '')) : '';
+          return `<button class="opt ${cls}" data-act="b-step1" data-i="${i}" ${answered ? 'disabled' : ''}><span class="k">${i + 1}</span><span class="${(o === 'p1' || o === 'p2') ? '' : 'word'}">${esc(optLabel(o))}</span></button>`;
         }).join('')}</div>`;
         if (step1Review) body += `<div class="step-note" id="s1note">${s1Note()}</div>
-          <div class="ex-actions"><span class="kbd-hint">Enter to continue</span><button class="btn primary" data-act="b-step2" style="margin-left:auto">Now build the word</button></div>`;
+          <div class="ex-actions"><span class="kbd-hint">Enter to continue</span><button class="btn primary" data-act="b-step2" style="margin-left:auto">Now write the word</button></div>`;
       } else {
-        const built = d.built.map(i => d.tray[i]);
         if (d.step1 && d.s1 === false) body += `<div class="step-note" id="s1note">Step 1: ${s1Note()}</div>`;
-        body += `<div class="build-out ${built.length ? '' : 'empty'}" data-ph="Tap the blocks in order">${built.map(c => blk(c.t, c.r, 'sm')).join('')}</div>
-          <div class="tray">${d.tray.map((c, i) => `<button class="blk ${c.r} ${d.built.includes(i) ? 'used' : ''}" data-act="b-chip" data-i="${i}">${esc(c.t)}</button>`).join('')}</div>
-          <div class="ex-actions"><div class="btn-row"><button class="btn quiet sm" data-act="b-undo">Undo</button><button class="btn quiet sm" data-act="b-clear">Clear</button></div>
-          <button class="btn primary" data-act="b-check" ${built.length ? '' : 'disabled'}>Check</button></div>`;
+        if (d.hint >= 1 && d.jhint) body += `<div class="step-note" id="jointHint"><b>Hint:</b> ${d.jhint}</div>`;
+        if (d.hint >= 2) {
+          // last hint: the blocks (counts as help)
+          const built = d.built.map(i => d.tray[i]);
+          body += `<div class="build-out ${built.length ? '' : 'empty'}" data-ph="Tap the blocks in order">${built.map(c => blk(c.t, c.r, 'sm')).join('')}</div>
+            <div class="tray">${d.tray.map((c, i) => `<button class="blk ${c.r} ${d.built.includes(i) ? 'used' : ''}" data-act="b-chip" data-i="${i}">${esc(c.t)}</button>`).join('')}</div>
+            <div class="ex-actions"><div class="btn-row"><button class="btn quiet sm" data-act="b-undo">Undo</button><button class="btn quiet sm" data-act="b-clear">Clear</button></div>
+            <button class="btn primary" data-act="b-check" ${built.length ? '' : 'disabled'}>Check</button></div>`;
+        } else {
+          if (d.msg) body += `<div class="step-note try" id="tryMsg">${d.msg}</div>`;
+          body += `<div class="type-row"><input id="ans" class="txt" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Your answer" value="${esc(d.val || '')}"><button class="btn primary" data-act="bt-check">Check</button></div>
+            ${umlautPad()}
+            <div class="ex-actions"><button class="btn quiet sm" data-act="bt-hint">${d.hint === 0 && d.jhint ? 'Need a hint?' : 'Show the blocks'}</button><button class="btn quiet sm" data-act="bt-giveup">I don't know</button></div>`;
+        }
       }
       return `${exHead(ex)}<div class="ex-q">${q}</div>${body}`;
     }
@@ -1121,31 +1242,50 @@ function showFeedback(ex){
   if (ex.correct === null) { head = 'Skipped.'; headCls = 'info'; }
   else if (ex.type === 'produce') { head = 'Saved.'; headCls = 'ok'; }
   else if (!ex.correct && info.partial) { head = 'Half right.'; headCls = 'half'; }
-  else { head = ex.correct ? (info.overridden ? 'Counted as correct.' : 'Correct.') : 'Not quite.'; headCls = ex.correct ? 'ok' : 'no'; }
-  let why = '';
+  else { head = ex.correct ? (info.overridden ? 'Counted as correct.' : (info.helped ? 'Correct with help.' : 'Correct.')) : 'Not quite.'; headCls = ex.correct ? 'ok' : 'no'; }
+  let why = '', exampleShown = false;
   switch (ex.type) {
     case 'meaningPick': rows.push(['Meaning', esc(it.en)]); break;
     case 'recall': rows.push(['Answer', wordHtml(it)]); if (!ex.correct && info.typed) rows.push(['You wrote', esc(info.typed)]); break;
     case 'build': case 'transfer': {
       const src = ex.type === 'transfer' ? d.pseudo : it;
-      rows.push(['Answer', wordHtml(src)]);
-      // say exactly which step went wrong
+      rows.push(['Answer', formationDiagramInline(src)]);           // der Anspruch + s + voll = anspruchsvoll
+      // say exactly which step went wrong, and how step 2 was solved
       if (d.step1 && info.s1 === false) rows.push(['Step 1', `You chose ${esc(optLabel(d.step1.opts[info.picked]))}. The element is ${esc(optLabel(d.step1.opts[d.step1.ans]))}.`]);
       if (d.step1 && info.s1 === true && !ex.correct) rows.push(['Step 1', 'Right element.']);
-      if (info.partial) rows.push(['Step 2', 'You built the word correctly.']);
-      else if (!ex.correct && info.built) rows.push(d.step1 ? ['Step 2', `You built ${esc(info.built)}.`] : ['You built', esc(info.built)]);
+      const tries = info.attempts || [];
+      const label = d.step1 && d.step2 === 'type' ? 'Step 2' : 'Your answer';
+      if (d.step2 === 'type' && info.step2ok != null) {
+        if (info.gaveUp) rows.push([label, `${tries.length ? `You wrote ${esc(tries.join(', then '))}, then chose` : 'You chose'} “I don't know”.`]);
+        else if (!info.step2ok && info.built != null) rows.push([label, `With the blocks you built ${esc(info.built)}.`]);
+        else if (!info.step2ok) rows.push([label, `You wrote ${esc(tries.join(', then '))}.`]);
+        else {
+          const how = [];
+          if (tries.length) how.push(`on the second try (first: ${esc(tries[0])})`);
+          if (info.hint === 1) how.push('after the hint');
+          if (info.hint >= 2) how.push('with the blocks');
+          rows.push([label, `Right${how.length ? ' ' + how.join(', ') : ''}.`]);
+        }
+      }
       const a = affixInfo(src.affix) || (src.kind === 'p1' ? affixInfo('p1') : src.kind === 'p2' ? affixInfo('p2') : null);
       if (a && a.meaning) rows.push(['Pattern', `${esc(a.form)} = ${esc(a.meaning)}`]);
       const notes = [];
       if (info.partial && !ex.correct) notes.push(`The word itself is right; only the building element in step 1 was not.${ex.graded ? ' That is a small slip: the word moves down one box instead of starting again.' : ''}`);
-      if (src.change) notes.push(`Notice: ${esc(src.change)}`);
-      else if (G.segment(src).some(s => s[1] === 'fug')) notes.push('The linking -s joins the noun to the ending.');
+      if (info.helped && ex.correct && ex.graded && !info.overridden) notes.push('Right with help: the word keeps its box and comes back after the same interval.');
+      // what went wrong at the joint, from the learner's own attempts
+      const diag = tries.map(t => jointDiagnosis(src, t)).find(Boolean);
+      if (diag) notes.push(diag.why);
+      else if (src.change) notes.push(`Notice: ${esc(src.change)}`);
+      else if (G.segment(src).some(x => x[1] === 'fug')) notes.push('The linking -s joins the noun to the ending.');
       why = notes.join('<br>');
+      if (it) {
+        const exS = it.ex.find(x => G.findForm(x, it.w));
+        if (exS) { const en = exEnFor(it, exS); rows.push(['Example', `${esc(exS)} ${speakBtn(exS)}${en ? `<div class="ex-en">${esc(en)}</div>` : ''}`]); exampleShown = true; }
+      }
       if (a && a.ex && ex.type === 'build') {
         const same = a.ex.filter(e => lc(e.w) !== lc(src.w)).slice(0, 4);
         if (same.length) rows.push(['Same pattern', `<span class="chain">${same.map(e => `<span title="${esc(e.en)}">${libWordHtml(e, a)}</span>`).join('<span class="arr">·</span>')}</span>`]);
       }
-      if (ex.type === 'transfer') rows.push(['From', esc(src.base)]);
       break;
     }
     case 'decon': rows.push(['Base', esc(it.base)]); rows.push(['Built', formationDiagramInline(it)]); break;
@@ -1221,7 +1361,7 @@ function showFeedback(ex){
     if (!['build','decon'].includes(ex.type) && it.kind !== 'simple') rows.push(['Built', formationDiagramInline(it)]);
     const fc = familyChain(it); if (fc && ex.type !== 'family' && ex.type !== 'match') rows.push(['Family', fc]);
     if (ex.type === 'family') rows.push(['Family', fc]);
-    const ph = phrasesOf(it)[0]; if (ph && ex.type !== 'ending') rows.push(['Phrase', esc(ph)]);
+    const ph = phrasesOf(it)[0]; if (ph && ex.type !== 'ending' && !exampleShown) rows.push(['Phrase', esc(ph)]);
     if (it.contrast && it.contrast.note) rows.push(['Contrast', esc(it.contrast.note)]);
   }
   let extra = '';
@@ -1243,7 +1383,15 @@ function showFeedback(ex){
 function formationDiagramInline(it){
   if (it.kind === 'simple') return 'Base word';
   const seg = G.segment(it);
-  return `<span class="chain">${it.base && it.kind !== 'compound' ? `<span class="tag">${esc(it.base)}</span><span class="arr">+</span>` : ''}${seg.filter(s => it.kind === 'compound' || s[1] !== 'base').map(([t, r]) => `<span class="word m-${r}">${esc(t)}</span>`).join('<span class="arr">+</span>')}<span class="arr">=</span>${wordHtml(it)}</span>`;
+  const tag = it.base && it.kind !== 'compound' ? `<span class="tag">${esc(it.base)}</span>` : '';
+  const piece = ([t, r]) => `<span class="word m-${r}">${esc(t)}</span>`;
+  const plus = '<span class="arr">+</span>';
+  let lhs;
+  if (!tag) lhs = seg.map(piece).join(plus);                                            // compound, or no base word saved
+  else if (it.kind === 'prefix') lhs = seg.filter(x => x[1] !== 'base').map(piece).join(plus) + plus + tag;   // un + gewöhnlich
+  else if (it.kind === 'p2') lhs = tag + plus + '<span class="word m-ge">Partizip II</span>';
+  else lhs = tag + plus + seg.filter(x => x[1] !== 'base').map(piece).join(plus);       // der Anspruch + s + voll
+  return `<span class="chain">${lhs}<span class="arr">=</span>${wordHtml(it)}</span>`;
 }
 function endingTable(a, c, g, short){
   const cols = ['m','f','n','p'];
@@ -1259,6 +1407,7 @@ function renderSummary(){
   const r = S.results;
   const graded = r.filter(x => x.correct !== null);
   const ok = graded.filter(x => x.correct).length;
+  const helpedN = graded.filter(x => x.correct && x.helped).length;
   const pct = graded.length ? Math.round(ok / graded.length * 100) : 0;
   const cats = {};
   r.filter(x => x.correct === false).forEach(x => { const k = x.cat || CAT_OF[x.sk] || 'usage'; cats[k] = (cats[k] || 0) + 1; });
@@ -1268,7 +1417,7 @@ function renderSummary(){
     <div class="panel">
       <h1>${mode === 'review' ? 'Review done' : 'Drill done'}</h1>
       <div class="score">${pct}%</div>
-      <p class="muted">${ok} of ${graded.length} answers right${mode === 'review' ? `, ${S.gradedIds.size} words rescheduled` : ''}.</p>
+      <p class="muted">${ok} of ${graded.length} answers right${helpedN ? ` (${helpedN} with help)` : ''}${mode === 'review' ? `, ${S.gradedIds.size} words rescheduled` : ''}.</p>
       ${Object.keys(cats).length ? `<h2 style="margin-top:16px">What went wrong</h2><ul class="weak-list">${Object.entries(cats).map(([k, n]) => `<li><span>${esc(CAT_LABEL[k])}</span><b>${n}</b></li>`).join('')}</ul>` : ''}
       ${wrong.length ? `<h2 style="margin-top:16px">Words to revisit</h2><div class="tags">${wrong.map(it => `<button class="tag" data-act="open-word" data-id="${esc(it.id)}">${esc(it.w)}</button>`).join('')}</div>` : ''}
       <div class="btn-row" style="margin-top:18px">
@@ -1297,46 +1446,92 @@ function renderCard(ex, lock){
 function lockInput(ms){ if (S) S.lockUntil = Date.now() + (ms || 400); }
 const inputLocked = () => !!(S && S.lockUntil && Date.now() < S.lockUntil);
 const step1Open = d => !!(d.step1 && (d.s1 === null || (d.s1 === false && !d.s1ack)));
+const isBuildEx = ex => !!ex && (ex.type === 'build' || ex.type === 'transfer');
+const srcOf = ex => ex.type === 'transfer' ? ex.data.pseudo : getItem(ex.id);
+function focusAnswer(){ const a = $('#ans'); if (a && !('ontouchstart' in window)) a.focus({preventScroll:true}); }
 function handleStep1(i){
-  const ex = cur(); if (!ex || ex.done) return;
+  const ex = cur(); if (!isBuildEx(ex) || ex.done) return;
   const d = ex.data;
   if (!d.step1 || d.s1 !== null || !(i >= 0 && i < d.step1.opts.length)) return;   // answered once only
   d.picked = i; d.s1 = i === d.step1.ans;
-  if (!d.s1) { renderCard(ex, true); return; }            // wrong: show the right element and wait for "Now build the word"
+  if (d.step2 !== 'type') {
+    // one-step card (un-, hoch-, inter-, Partizip I): choosing the element is the whole task
+    $$('#exCard .opt').forEach((b, k) => { b.disabled = true; if (k === d.step1.ans) b.classList.add('right'); else if (k === i) b.classList.add('wrong'); });
+    finish(ex, d.s1, {s1:d.s1, picked:i});
+    return;
+  }
+  if (!d.s1) { renderCard(ex, true); return; }            // wrong: show the right element and wait for "Now write the word"
   $$('#exCard .opt').forEach((b, k) => { b.disabled = true; if (k === i) b.classList.add('right'); });
-  setTimeout(() => { if (cur() === ex && !ex.done) renderCard(ex, true); }, 450);
+  setTimeout(() => { if (cur() === ex && !ex.done) { renderCard(ex, true); focusAnswer(); } }, 450);
 }
 function handleStep2(){
-  const ex = cur(); if (!ex || ex.done) return;
+  const ex = cur(); if (!isBuildEx(ex) || ex.done) return;
   const d = ex.data;
-  if (!d.step1 || d.s1 !== false || d.s1ack) return;
+  if (!d.step1 || d.s1 !== false || d.s1ack || d.step2 !== 'type') return;
   d.s1ack = true;
   renderCard(ex, true);
+  focusAnswer();
+}
+// step 2 is over: grade the whole card. Any help (hint, blocks, second try) = right with help; a wrong element = half right.
+function completeBuild(ex, step2ok, extra){
+  const d = ex.data;
+  const s1ok = !d.step1 || d.s1 === true;
+  const correct = step2ok && s1ok;
+  const helped = d.hint > 0 || d.attempts.length > 0;
+  $$('#exCard button, #exCard input').forEach(b => b.disabled = true);
+  const inp = $('#ans'); if (inp) inp.classList.add(step2ok ? 'ok' : 'no');
+  finish(ex, correct, Object.assign({s1:d.s1, picked:d.picked, step2ok, partial: step2ok && !s1ok, helped: correct && helped, hint:d.hint, attempts:d.attempts.slice()}, extra));
+}
+function handleBuildTyped(giveUp){
+  const ex = cur(); if (!isBuildEx(ex) || ex.done) return;
+  const d = ex.data;
+  if (step1Open(d) || d.step2 !== 'type' || d.hint >= 2) return;
+  const src = srcOf(ex);
+  if (giveUp) { completeBuild(ex, false, {gaveUp:true}); return; }
+  const inp = $('#ans');
+  const typed = inp ? inp.value.trim() : '';
+  if (!typed) { if (inp) inp.focus(); return; }
+  d.val = typed;
+  if (sameAnswer(typed, src.w)) { completeBuild(ex, true, {typed}); return; }
+  d.attempts.push(typed);
+  if (d.attempts.length >= 2) { completeBuild(ex, false, {typed}); return; }
+  // first wrong try: say what kind of mistake it is (never the answer) and let the learner try again
+  const dg = jointDiagnosis(src, typed);
+  d.msg = `${dg ? dg.hint : 'Not yet.'} Try again, or use a hint.`;
+  renderCard(ex);
+  const a = $('#ans'); if (a) { a.focus({preventScroll:true}); a.select(); }
+}
+function handleBuildHint(){
+  const ex = cur(); if (!isBuildEx(ex) || ex.done) return;
+  const d = ex.data;
+  if (step1Open(d) || d.step2 !== 'type' || d.hint >= 2) return;
+  const inp = $('#ans'); if (inp) d.val = inp.value;
+  d.hint = d.hint === 0 && d.jhint ? 1 : 2;
+  d.msg = '';
+  renderCard(ex, true);
+  if (d.hint === 1) focusAnswer();
 }
 function handleBuild(action, i){
-  const ex = cur(); if (!ex || ex.done) return;
+  const ex = cur(); if (!isBuildEx(ex) || ex.done) return;
   const d = ex.data;
-  if (step1Open(d)) return;                                 // step 2 only after step 1
+  if (step1Open(d) || d.hint < 2) return;                 // the blocks are the last hint of step 2
   if (action === 'chip') { if (!(i >= 0 && i < d.tray.length)) return; if (!d.built.includes(i)) d.built.push(i); }
   if (action === 'undo') d.built.pop();
   if (action === 'clear') d.built = [];
   if (action === 'check') {
     if (!d.built.length) return;
-    const src = ex.type === 'transfer' ? d.pseudo : getItem(ex.id);
+    const src = srcOf(ex);
     const built = d.built.map(k => d.tray[k].t).join('');
     const ok2 = lc(built) === lc(src.w);
-    const s1ok = !d.step1 || d.s1 === true;
-    const correct = ok2 && s1ok;
-    $$('#exCard button').forEach(b => b.disabled = true);
     const out = $('#exCard .build-out'); if (out) { out.style.borderColor = ok2 ? 'var(--ok)' : 'var(--bad)'; out.style.borderStyle = 'solid'; out.style.background = ok2 ? 'var(--ok-bg)' : 'var(--bad-bg)'; }
-    // right word after a wrong element in step 1 = half right (a smaller penalty, and said plainly)
-    finish(ex, correct, {built, s1:d.s1, picked:d.picked, partial: ok2 && !s1ok});
+    completeBuild(ex, ok2, {built});
     return;
   }
   renderCard(ex);
 }
 function handleTyped(giveUp){
   const ex = cur(); if (!ex || ex.done) return;
+  if (isBuildEx(ex)) { handleBuildTyped(giveUp); return; }
   const it = getItem(ex.id);
   const inp = $('#ans');
   const typed = giveUp ? '' : (inp ? inp.value.trim() : '');
@@ -1967,6 +2162,9 @@ const ACT = {
   'opt': el => handleOpt(+el.dataset.i),
   'b-step1': el => handleStep1(+el.dataset.i),
   'b-step2': () => handleStep2(),
+  'bt-check': () => handleBuildTyped(false),
+  'bt-giveup': () => handleBuildTyped(true),
+  'bt-hint': () => handleBuildHint(),
   'b-chip': el => handleBuild('chip', +el.dataset.i),
   'b-undo': () => handleBuild('undo'),
   'b-clear': () => handleBuild('clear'),
@@ -2058,14 +2256,14 @@ document.addEventListener('keydown', e => {
     if (ex.done || ex.type === 'intro') { e.preventDefault(); nextCard(); return; }
     if (typing && document.activeElement.id === 'ans') { e.preventDefault(); handleTyped(false); return; }
     if (isBuild && ex.data.step1 && ex.data.s1 === false && !ex.data.s1ack && !typing) { e.preventDefault(); handleStep2(); return; }
-    if (isBuild && !step1Open(ex.data) && ex.data.built && ex.data.built.length && !typing) { e.preventDefault(); handleBuild('check'); return; }
+    if (isBuild && !step1Open(ex.data) && ex.data.hint >= 2 && ex.data.built && ex.data.built.length && !typing) { e.preventDefault(); handleBuild('check'); return; }
     return;
   }
   if (typing || ex.done) return;
   if (/^[1-9]$/.test(e.key)) {
     const k = +e.key - 1;
     if (ex.type === 'ending') { const b = $$('#exCard .endings .blk')[k]; if (b) b.click(); return; }
-    if (isBuild && !step1Open(ex.data)) { const b = $$('#exCard .tray .blk')[k]; if (b) b.click(); return; }
+    if (isBuild && !step1Open(ex.data)) { const b = $$('#exCard .tray .blk')[k]; if (b) b.click(); return; }   // blocks (last hint) only
     const b = $$('#exCard .opt:not(:disabled)')[k]; if (b) b.click();
   }
   if (e.key === 'Backspace' && isBuild) { e.preventDefault(); handleBuild('undo'); }

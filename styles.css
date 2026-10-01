@@ -225,6 +225,7 @@ p{margin:0 0 10px}
 .step-tag{display:inline-block; font-size:12.5px; font-weight:700; letter-spacing:.02em; color:var(--ink-3); border:1px solid var(--line-2); border-radius:999px; padding:1px 8px; margin-right:6px; vertical-align:2px}
 .step-note{margin:12px 0; padding:10px 12px; border-radius:10px; background:var(--warn-bg); border-left:4px solid var(--warn); color:var(--ink); font-size:15px; line-height:1.45}
 .step-note[hidden]{display:none}
+.step-note.try{border-left-color:var(--bad); background:var(--bad-bg)}
 .endings{display:flex; gap:8px; justify-content:center; flex-wrap:wrap}
 .endings .blk{min-width:64px}
 
