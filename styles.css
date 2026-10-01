@@ -207,18 +207,16 @@ p{margin:0 0 10px}
 .opt.w{font-family:var(--f-word)}
 .opt:hover{border-color:var(--ink-3)}
 .opt.picked{border-color:var(--base); background:color-mix(in srgb, var(--base) 7%, var(--surface))}
-/* result states: right = solid green with a tick, wrong = red outline, crossed out, with a cross.
+/* result states: right = solid green, wrong = red outline, crossed out, with a cross.
    Shape and symbol differ too, so the two never look alike (also for red/green colour blindness). */
 .opt.right{border-color:var(--ok); background:var(--ok); color:var(--on-ok)}
 .opt.right .k{background:transparent; border-color:color-mix(in srgb, var(--on-ok) 50%, transparent); color:var(--on-ok)}
 .opt.wrong{border:2px solid var(--bad); background:var(--bad-bg); color:var(--bad)}
 .opt.wrong > span:not(.k){text-decoration:line-through; text-decoration-thickness:2px}
 .opt.wrong .k{border-color:var(--bad); color:var(--bad); background:transparent}
-.opt.right::after, .opt.wrong::after{margin-left:auto; padding-left:8px; font-size:20px; font-weight:800; line-height:1}
-.opt.right::after{content:'✓'} .opt.wrong::after{content:'✗'}
+.opt.wrong::after{content:'✗'; margin-left:auto; padding-left:8px; font-size:20px; font-weight:800; line-height:1}
 .opt:disabled:not(.right):not(.wrong){opacity:.45}
 .blk.res-right{--c:var(--ok); background:var(--ok); color:var(--on-ok); border-color:var(--ok)}
-.blk.res-right::after{content:' ✓'}
 .blk.res-wrong{--c:var(--bad); background:var(--bad-bg); color:var(--bad); border-color:var(--bad); text-decoration:line-through; text-decoration-thickness:2px}
 .blk.res-wrong::after{content:'✗'; display:inline-block; margin-left:6px; text-decoration:none}
 .blk.res-dim{opacity:.35}
