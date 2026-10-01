@@ -1,6 +1,6 @@
 // MorphoDeutsch service worker: the app keeps working offline.
 // Pages and scripts: network first (so updates arrive), cache as fallback. Fonts and icons: cache first.
-const CACHE_VERSION = 'morpho-v4';
+const CACHE_VERSION = 'morpho-v5';
 const CORE = ['./', 'index.html', 'styles.css', 'data.js', 'engine.js', 'app.js', 'review.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {

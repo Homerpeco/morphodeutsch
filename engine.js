@@ -222,6 +222,12 @@ const G = (() => {
     const seed = SEED.find(s => s.w === w);
     if (seed) return {kind:seed.kind, affix:seed.affix, base:seed.base, parts:seed.parts.slice(), change:seed.change || '', en:seed.en, source:'library', sure:true};
     const knownWords = new Set([...(known || []), ...AFFIXES.flatMap(a => a.ex.map(e => e.w)), ...SEED.map(s => s.w)]);
+    // nouns we can confirm, with their article: library and starter bases, plus bases and families from the deck
+    const KN = new Map();
+    [...AFFIXES.flatMap(a => a.ex.map(e => e.base)), ...SEED.map(s => s.base), ...(known || [])].forEach(b => {
+      const m = /^(der|die|das)\s+(\S+)$/i.exec((b || '').trim()); if (m && !KN.has(lc(m[2]))) KN.set(lc(m[2]), lc(m[1]) + ' ' + cap(m[2]));
+    });
+    knownWords.KN = KN;
 
     // 2) prefixes
     if (w.startsWith('inter') && w.length > 9) return {kind:'prefix', affix:'inter', base:w.slice(5), parts:['inter', w.slice(5)], sure:true};
@@ -256,23 +262,32 @@ const G = (() => {
         if (FUG_NOUN_END.test(noS) || FUG_NOUNS.has(noS) || ((s === 'wert' || s === 'würdig') && /en$/.test(noS))) { fug = 's'; stem = noS; }
       }
       const parts = fug ? [stem, fug, s] : [stem, s];
-      let base = '', change = '';
+      let base = '', change = '', baseSure = false;
+      const KN = (knownWords && knownWords.KN) || new Map();
       if (['bar','sam'].includes(s)) base = stem + (/(el|er)$/.test(stem) ? 'n' : 'en');
       else if ((s === 'wert' || s === 'würdig') && fug) base = stem;
-      else if (['iv'].includes(s)) base = 'die ' + cap(stem) + 'ion';
-      else if (s === 'ant') base = 'die ' + cap(stem) + 'anz';
-      else if (s === 'ent') base = 'die ' + cap(stem) + 'enz';
+      else if (['iv','ant','ent'].includes(s)) {
+        // -ent → -enz is regular (Kompetenz, Effizienz); -iv → -ion and -ant → -anz often are not (massiv, effektiv, markant)
+        const noun = stem + ({iv:'ion', ant:'anz', ent:'enz'})[s];
+        baseSure = KN.has(lc(noun));
+        base = baseSure ? KN.get(lc(noun)) : (s === 'ent' ? 'die ' + cap(noun) : '');
+      }
       else if (['isch','ell','al'].includes(s)) base = '';
       else {
-        let noun = stem;
-        if (['lich','ig'].includes(s)) {
-          const du = deUmlaut(stem);
-          if (du) { noun = du.s; change = du.change; }
+        // noun base: a noun we can confirm, or one whose ending shows its gender. Never invent one ("zuverlässig" is not from "Zuverlass").
+        const cands = [];
+        const du = ['lich','ig'].includes(s) ? deUmlaut(stem) : null;
+        if (du) cands.push({n:du.s, change:du.change});
+        cands.push({n:stem, change:''});
+        const hit = cands.flatMap(c => [c, {n:c.n + 'e', change:c.change}]).find(c => KN.has(lc(c.n)));
+        if (hit) { base = KN.get(lc(hit.n)); change = hit.change; baseSure = true; }
+        else {
+          // a gender ending only counts on the stem as written (geschäftlich must not become "die Geschaft")
+          const art = guessArticle(stem);
+          if (art) base = art + ' ' + cap(stem);
         }
-        const art = guessArticle(noun);
-        base = (art ? art + ' ' : '') + cap(noun);
       }
-      return {kind:'suffix', affix:aff, base, parts, change, sure:false};
+      return {kind:'suffix', affix:aff, base, parts, change, sure:false, baseSure};
     }
     // Partizip II with ge-
     const pm = w.match(/^([a-zäöü]*?)ge([a-zäöü]{3,}?)(et|t)$/);

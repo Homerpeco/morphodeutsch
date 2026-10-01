@@ -17,7 +17,7 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
 - **Family-aware repetition**: a forgotten word goes back to box 1 and gets two follow-up questions later in the same
   session; a family or usage slip only moves it down one box; related words (same element or same family) are brought
   forward to tomorrow instead of being failed with it. Stats separate *forgot the word*, *family*, *usage* and *transfer* mistakes.
-- **Drills** (do not move boxes): Derivation lab with transfer challenges (build words you have never seen from a known
+- **Drills** (do not move boxes): Derivation lab (step 1: pick the element; step 2: assemble the blocks) with transfer challenges (build words you have never seen from a known
   pattern), Partizip I vs II (37 sentences), adjective endings (generated from the nouns, incl. n-declension and plurals),
   opposites and near-synonyms, word families, words in context, prepositions + case, write your own.
 - **Patterns**: 24 building elements with meaning, rules and 150+ example words; ending tables; Partizip I/II rule.
@@ -30,6 +30,29 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
   regenerate one section (synonyms and opposites, examples, collocations, family, grammar, blocks).
   Saved analyses add three exercises: *Which meaning?*, *Match the family* and *English to German*.
 
+## Reliability rules (answer keys)
+- **Every question has exactly one right answer.** Wrong options never mean the same as the right one (English glosses are
+  compared), are never a listed synonym, opposite or family member, and in the Derivation lab a wrong element is never one that
+  builds a real word with the same base (opposites excepted) or that can mean the same (-los/-frei, -voll/-reich/-ig,
+  -voll/-haft, -haft/-lich, -bar/-lich/-sam, -al/-ell, un-/in-).
+- **Derivation lab in two visible steps.** A wrong element in step 1 stays on screen with the right one and its meaning until
+  you tap *Now build the word*; step 2 keeps that note. A correct build after a wrong element is **Half right.**
+  (word moves down one box, not back to box 1; listed as *Chose the wrong building element*), and a mis-tap can be counted.
+- **No carried-over taps.** For 0.4 s after a new card or step appears, taps and number/Enter keys on it are ignored, and held
+  keys never repeat an answer. Each step can be answered once only.
+- **Typed answers** ignore case, spaces, quotes and end punctuation, and accept ae/oe/ue/ss. A real synonym typed in *Recall*
+  is not marked wrong: the card asks again.
+- **No invented base words.** The detector only fills a base noun it can confirm (library, deck, families) or whose ending
+  shows its gender; otherwise the field stays empty for you or the AI analysis to fill.
+
+### Answer-key audit (run before every release)
+`node tests/answer-key-audit.mjs` (Playwright + Chromium). It builds a deck (starter words, an AI-analysed word from
+`tests/fixture-entfernt.json`, 20 words typed into the Add form), then answers every exercise type for every word right and
+wrong through the page (about 4,600 answers), checks the grammar of every ending question against its own declension
+tables, and replays the reported bugs on a phone-sized screen (wrong element then correct build; double tap on Continue;
+double tap on an element; Enter pressed twice; held keys). Exit code 0 = all passed.
+Optional `DICT=…/dictionary-de/index.dic` lists wrong options that are real German words for a manual look.
+
 ## Files
 | File | What |
 |---|---|
@@ -41,6 +64,7 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
 | `api/enrich.js`, `api/_enrich.js` | AI analysis endpoint (Gemini): prompt, validation, model fallback |
 | `review.js` | the AI review screen and how a reviewed analysis is saved |
 | `sw.js`, `manifest.webmanifest`, `icons/` | installable on the phone, works offline |
+| `tests/answer-key-audit.mjs` | the answer-key audit (not deployed: `.vercelignore`) |
 
 Rule: every `parts` array must spell its word exactly (checked at start-up, error in the console otherwise).
 

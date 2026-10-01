@@ -20,9 +20,24 @@ const splitList = s => (s || '').split(/[,;\n]/).map(x => x.trim()).filter(Boole
 const splitLines = s => (s || '').split(/\n|;/).map(x => x.trim()).filter(Boolean);
 const stripArt = s => (s || '').replace(/^(der|die|das|sich)\s+/i, '').replace(/\s*\(.*\)$/, '').trim();
 const translit = s => lc(s).replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss');
+// typed answers: ignore case, extra spaces, quotes and end punctuation; accept ae/oe/ue/ss for ä/ö/ü/ß
+const cleanAnswer = s => lc(s || '').replace(/[\s ]+/g, ' ').replace(/^[\s"'„“”‚‘’«»(\[]+|[\s"'„“”‚‘’«».,;:!?)\]]+$/g, '').trim();
 function sameAnswer(typed, target){
-  const a = lc(typed).replace(/\s+/g, ' ').trim(), b = lc(target).trim();
-  return a === b || a === translit(b) || (b === 'selbstständig' && a === 'selbständig');
+  const a = cleanAnswer(typed), b = cleanAnswer(target);
+  if (!a || !b) return false;
+  const alt = x => x.replace(/selbständig/g, 'selbstständig');
+  return a === b || translit(a) === translit(b) || alt(a) === alt(b) || translit(alt(a)) === translit(alt(b));
+}
+// English glosses: content words, used to keep two right answers out of one question
+const GLOSS_STOP = new Set(['the','and','for','with','not','very','something','someone','sth','that','from','about','into','more','less','way','one','who','which','can','been','being','has','have','its','are','was','you','your']);
+function glossWords(en){
+  const s = lc(en || '').replace(/\([^)]*\)/g, ' ').replace(/\b(not|no|never|without)\s+([a-z'-]+)/g, 'not_$2');   // "not safe" ≠ "safe"
+  return new Set(s.split(/[^a-z_'-]+/).map(w => w.replace(/^[-']+|[-']+$/g, '')).filter(w => w.length > 2 && !GLOSS_STOP.has(w)));
+}
+function glossOverlap(a, b){
+  const A = glossWords(a); if (!A.size) return false;
+  for (const w of glossWords(b)) if (A.has(w)) return true;
+  return false;
 }
 function toast(msg){
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -315,10 +330,12 @@ const SKILL_OF = {meaningPick:'meaning', recall:'meaning', build:'form', transfe
 const SKILL_LABEL = {form:'Build the form', family:'Word family', contrast:'Contrasts', ending:'Endings', colloc:'Words in context', meaning:'Meaning',
   valency:'Preposition and case', produce:'Own sentences'};
 const CAT_OF = {meaning:'direct', form:'direct', colloc:'direct', family:'family', ending:'usage', contrast:'usage', valency:'usage', produce:'usage', transfer:'transfer'};
-const CAT_LABEL = {direct:'Forgot the word or its form', family:'Could not connect it to its family', usage:'Endings, contrasts and prepositions', transfer:'Could not transfer a pattern to a new word'};
+const CAT_LABEL = {direct:'Forgot the word or its form', element:'Chose the wrong building element', family:'Could not connect it to its family', usage:'Endings, contrasts and prepositions', transfer:'Could not transfer a pattern to a new word'};
 const LOOP_ORDER = ['form','contrast','ending','colloc','meaning','family','valency','produce'];
 
 function deckWords(){ return DB.items.map(it => it.w); }
+// words and nouns the detector may rely on: the deck's adjectives plus their bases and families (nouns with articles)
+function analyzeKnown(except){ const ex = lc(except || ''); return uniq(DB.items.flatMap(it => [it.w, it.base, ...it.family]).filter(x => x && lc(x) !== ex)); }
 function otherItems(it){ return DB.items.filter(x => x.id !== (it && it.id)); }
 function distract(correct, pool, n, exclude){
   const seen = new Set([lc(correct)]), out = [];
@@ -338,6 +355,69 @@ function relatedSet(it){
 }
 function rootOf(it){ return fold(stripArt(it.kind === 'prefix' ? it.base : (it.base || it.w))).slice(0, 5); }
 
+/* answer-key safety: a question must have exactly one right answer */
+// English gloss of a German adjective from the deck or the pattern library ('' if unknown)
+function glossOf(w){
+  const k = lc(stripArt(w || ''));
+  const it = DB.items.find(o => lc(o.w) === k); if (it && it.en) return it.en;
+  const e = allLibraryWords().find(x => lc(x.w) === k); return e ? (e.en || '') : '';
+}
+// pick n wrong options, trying the pools in order (deck words first, then the library)
+function distractFrom(correct, pools, n, exclude){
+  const out = [], seen = new Set([lc(correct)]);
+  for (const pool of pools) {
+    for (const x of shuffle(pool)) {
+      if (out.length >= n) return out;
+      const k = lc(x);
+      if (!x || seen.has(k) || (exclude && exclude(x))) continue;
+      seen.add(k); out.push(x);
+    }
+  }
+  return out;
+}
+// Real words that are not in the deck or the library. An element that would build one of these (or any known word)
+// with the same base is never offered as a wrong option: the learner could be right with it.
+const REAL_ALSO = new Set(['gefahrvoll','zukunftsreich','zukunftreich','ernstlich','meisterlich','sündig','biegbar','verstehbar','erklärlich',
+  'empfindsam','unstabil','unkorrekt','inkorrekt','unakzeptabel','inakzeptabel','unkonsequent','unflexibel','inflexibel','unproduktiv',
+  'untolerant','unrelevant','unaktiv','unkompetent','unhuman','inhuman','unexakt','inexakt','unintelligent','ineffizient','uneffizient',
+  'intransparent','untransparent','unmobil','immobil','regelhaft','gefahrreich','gefahrenreich','belastungsfähig']);
+// elements that can mean the same thing: never offered against each other
+const SYN_GROUPS = [['los','frei'], ['voll','reich','ig'], ['voll','haft'], ['haft','lich'], ['bar','lich','sam'], ['al','ell'], ['un','in']];
+const synonymElements = id => new Set(SYN_GROUPS.filter(g => g.includes(id)).flat().filter(x => x !== id));
+function knownWordSet(){
+  const s = new Set(REAL_ALSO);
+  const add = w => { const k = lc(stripArt(w || '')); if (k && !/\s/.test(k)) s.add(k); };
+  DB.items.forEach(o => {
+    add(o.w); add(o.partner); o.syn.forEach(add); o.ant.forEach(add); o.family.forEach(add);
+    (o.familyTyped || []).forEach(f => add(f.w));
+    (o.meanings || []).forEach(m => { (m.syn || []).forEach(add); (m.ant || []).forEach(add); });
+  });
+  allLibraryWords().forEach(e => add(e.w));
+  return s;
+}
+const umlautLast = s => s.replace(/(au|a|o|u)([^aeiouäöü]*)$/, (m, v, rest) => ({au:'äu', a:'ä', o:'ö', u:'ü'}[v]) + rest);
+// every spelling the base can take in front of a suffix: linking -s/-es, umlaut, dropped -e, verb stem
+function stemVariants(it){
+  const out = new Set();
+  const addV = v => { if (!v || v.length < 2) return; [v, v + 's', v + 'es', umlautLast(v), umlautLast(v) + 's'].forEach(x => out.add(x)); };
+  const b = lc(stripArt(it.base || ''));
+  if (b && !/[\s+]/.test(b)) {
+    addV(b); addV(b.replace(/e$/, ''));
+    const vs = b.replace(/e?n$/, ''); addV(vs);
+    if (!/^(der|die|das)\s/i.test(it.base || '') && /n$/.test(b)) addV(vs + 'ung');   // verb → noun in -ung (belasten → belastungsfähig)
+  }
+  const w = lc(it.w || '');
+  if (it.kind === 'suffix' && it.affix && w.endsWith(it.affix)) { const rest = w.slice(0, -it.affix.length); addV(rest); addV(rest.replace(/e?s$/, '')); }
+  return Array.from(out);
+}
+function formsWith(it, id, kind){
+  if (kind === 'prefix') { const b = lc(stripArt(it.base || '')); if (!b) return []; return id === 'in' ? ['in','il','ir','im'].map(p => p + b) : [id + b]; }
+  return stemVariants(it).map(v => v + id);
+}
+function antonymSet(it){ return new Set([...(it.ant || []), ...(it.meanings || []).flatMap(m => m.ant || [])].map(x => lc(stripArt(x)))); }
+// safe = the element does not make a real word with this base (opposites are fine: they cannot be a right answer)
+function safeElement(it, id, kind, known, ants){ return !formsWith(it, id, kind).some(f => known.has(f) && !ants.has(f)); }
+
 // item + library pool of German adjectives for wrong options
 function adjPool(it, sameFieldOK){
   const rel = relatedSet(it);
@@ -350,8 +430,11 @@ const MK = {
   intro(it){ return {type:'intro', id:it.id}; },
   meaningPick(it){
     if (!it.en) return null;
-    const pool = [...otherItems(it).filter(o => o.en && (!it.field || o.field !== it.field)).map(o => o.en), ...allLibraryWords().map(x => x.en)];
-    const wrong = distract(it.en, pool, 3, x => lc(x).includes(lc(it.en.split(/[,;]/)[0])));
+    const rel = relatedSet(it);
+    const deckEn = otherItems(it).filter(o => o.en && (!it.field || o.field !== it.field) && !rel.has(lc(o.w))).map(o => o.en);
+    const libEn = allLibraryWords().filter(x => x.en && !rel.has(lc(x.w))).map(x => x.en);
+    // no wrong option may share a content word with the right meaning (e.g. "future-proof" vs "viable for the future, future-proof")
+    const wrong = distractFrom(it.en, [deckEn, libEn], 3, x => glossOverlap(x, it.en) || lc(x).includes(lc(it.en.split(/[,;]/)[0])));
     if (wrong.length < 3) return null;
     const opts = shuffle([it.en, ...wrong]);
     return {type:'meaningPick', id:it.id, data:{opts, ans:opts.indexOf(it.en)}};
@@ -360,7 +443,8 @@ const MK = {
     if (!it.en) return null;
     if (o && o.typed) return {type:'recall', id:it.id, typed:true, data:{hint:0}};
     const {deck, lib} = adjPool(it);
-    const wrong = distract(it.w, deck.length >= 3 ? deck : [...deck, ...lib], 3);
+    // a wrong option must not also mean this (aufregend "exciting" vs spannend "exciting, gripping")
+    const wrong = distractFrom(it.w, [deck, lib], 3, w => glossOverlap(glossOf(w), it.en));
     if (wrong.length < 3) return null;
     const opts = shuffle([it.w, ...wrong]);
     return {type:'recall', id:it.id, typed:false, data:{opts, ans:opts.indexOf(it.w)}};
@@ -414,7 +498,9 @@ const MK = {
     if (!list.length) return null;
     const correct = pick(list);
     const {deck, lib} = adjPool(it);
-    const wrong = distract(correct, deck.length >= 3 ? deck : [...deck, ...lib], 3, w => relatedSet(it).has(lc(w)));
+    const rel = relatedSet(it), correctEn = glossOf(correct);
+    // wrong options: not related to the word, and not meaning the same as the right answer (or, for near-synonyms, as the word)
+    const wrong = distractFrom(correct, [deck, lib], 3, w => rel.has(lc(w)) || (correctEn && glossOverlap(glossOf(w), correctEn)) || (!useAnt && glossOverlap(glossOf(w), it.en)));
     if (wrong.length < 3) return null;
     const opts = shuffle([correct, ...wrong]);
     return {type:'contrast', id:it.id, data:{opts, ans:opts.indexOf(correct), mode:useAnt ? 'ant' : 'syn', gloss:mean && it.meanings.length > 1 ? mean.gloss : ''}};
@@ -533,34 +619,45 @@ function buildData(it, noStep1){
   if (it.kind === 'suffix' && baseStem && baseStem !== seg[0][0] && !baseStem.includes(' ') && !has(baseStem)) extra.push({t:baseStem, r:'base'});
   const a = affixInfo(it.affix);
   if (it.kind === 'suffix' && a && ['fähig','voll','los','reich','frei','mäßig','haft','wert'].includes(a.id) && !seg.some(s => s[1] === 'fug') && !has('s')) extra.push({t:'s', r:'fug'});
+  const known = knownWordSet(), ants = antonymSet(it);
   if (it.kind === 'suffix') {
-    const others = shuffle(AFFIXES.filter(x => x.kind === 'suffix' && x.id !== it.affix && !lc(it.w).endsWith(x.id) && x.group === (a ? a.group : 'noun')));
+    const syn = synonymElements(it.affix);
+    const others = shuffle(AFFIXES.filter(x => x.kind === 'suffix' && x.id !== it.affix && !syn.has(x.id) && !lc(it.w).endsWith(x.id) && x.group === (a ? a.group : 'noun') && safeElement(it, x.id, 'suffix', known, ants)));
     if (others[0] && !has(others[0].id)) extra.push({t:others[0].id, r:'suf'});
   }
   if (it.kind === 'p1') { if (!has('t')) extra.push({t:'t', r:'suf'}); if (!has('ge')) extra.push({t:'ge', r:'ge'}); }
   if (it.kind === 'p2') { if (!has('d')) extra.push({t:'d', r:'suf'}); if (!has('ge')) extra.push({t:'ge', r:'ge'}); else extra.push({t:'en', r:'suf'}); }
-  if (it.kind === 'prefix') { const alt = pick(['un','in','miss','ur'].filter(p => p !== seg[0][0])); if (!has(alt)) extra.push({t:alt, r:'pre'}); }
+  if (it.kind === 'prefix') {
+    const syn = synonymElements(it.affix);
+    const alts = ['un','in','miss','ur'].filter(p => p !== seg[0][0] && p !== it.affix && !syn.has(p) && safeElement(it, p, 'prefix', known, ants));
+    const alt = alts.length ? pick(alts) : null;
+    if (alt && !has(alt)) extra.push({t:alt, r:'pre'});
+  }
   const tray = shuffle(chips.concat(extra.slice(0, 3)));
+  // step 1: which element? Wrong options never form a real word with this base (except its opposites),
+  // and never mean the same as the right element (-los / -frei, -voll / -reich, un- / in- …)
   let step1 = null;
   if (!noStep1 && it.kind !== 'compound') {
-    let correct, pool;
+    let correct = null, pool = [];
     if (it.kind === 'p1' || it.kind === 'p2') {
       correct = it.kind;
-      pool = ['p1','p2','bar','lich','sam'].filter(x => x !== correct);
-    } else if (it.kind === 'prefix') {
+      pool = [correct === 'p1' ? 'p2' : 'p1'].concat(['bar','lich','sam'].filter(x => safeElement(it, x, 'suffix', known, ants)));
+    } else if (it.kind === 'prefix' && affixInfo(it.affix)) {
       correct = it.affix;
-      pool = ['un','in','hoch','inter'].filter(x => x !== correct);
-    } else {
+      const syn = synonymElements(correct);
+      pool = AFFIXES.filter(x => x.kind === 'prefix' && x.id !== correct && !syn.has(x.id) && safeElement(it, x.id, 'prefix', known, ants)).map(x => x.id);
+    } else if (it.kind === 'suffix' && affixInfo(it.affix)) {
       correct = it.affix;
-      const blocked = new Set(['gefahrvoll']);
-      const base = lc(stripArt(it.base));
-      pool = AFFIXES.filter(x => x.kind === 'suffix' && x.id !== correct && !lc(it.w).endsWith(x.id) && !blocked.has(base + x.id)).map(x => x.id);
+      const syn = synonymElements(correct);
+      pool = AFFIXES.filter(x => x.kind === 'suffix' && x.id !== correct && !syn.has(x.id) && !lc(it.w).endsWith(x.id) && safeElement(it, x.id, 'suffix', known, ants)).map(x => x.id);
     }
     const wrong = shuffle(pool).slice(0, 3);
-    const opts = shuffle([correct, ...wrong]);
-    step1 = {opts, ans:opts.indexOf(correct)};
+    if (correct && wrong.length) {
+      const opts = shuffle([correct, ...wrong]);
+      step1 = {opts, ans:opts.indexOf(correct)};
+    }
   }
-  return {tray, step1, built:[], s1:null};
+  return {tray, step1, built:[], s1:null, s1ack:false};
 }
 function optLabel(id){
   if (id === 'p1') return 'Partizip I (+d)';
@@ -693,11 +790,11 @@ function nextCard(){
 }
 
 /* grading */
-function applySrs(it, correct, sk){
+function applySrs(it, correct, sk, partial){
   const s = it.srs, now = Date.now();
   s.n++; s.last = now;
   if (correct) { s.ok++; s.box = Math.min(6, s.box + 1); }
-  else if (CAT_OF[sk] === 'direct') s.box = 1;
+  else if (CAT_OF[sk] === 'direct' && !partial) s.box = 1;
   else s.box = Math.max(1, s.box - 1);
   s.due = s.box === 1 ? now : today0() + INTERVAL[s.box] * DAY;
 }
@@ -722,22 +819,24 @@ function finish(ex, correct, info){
   ex.snap = it ? JSON.stringify({srs:it.srs, skills:it.skills, lastSkill:it.lastSkill, updatedAt:it.updatedAt}) : null;
   ex.nEvents = DB.events.length;
   if (correct !== null) {
-    S.results.push({type:ex.type, id:ex.id, correct, sk, follow:!!ex.follow});
+    const partial = !correct && !!ex.info.partial;
+    const cat = partial ? 'element' : (CAT_OF[sk] || 'usage');
+    S.results.push({type:ex.type, id:ex.id, correct, sk, cat, partial, follow:!!ex.follow});
     DB.log[dateKey()] = (DB.log[dateKey()] || 0) + 1;
     if (it && sk && sk !== 'transfer') {
       const s = it.skills[sk] || {n:0, ok:0, t:0};
       s.n++; if (correct) s.ok++; s.t = now; it.skills[sk] = s;
       it.lastSkill = sk;
-      if (ex.graded && !S.gradedIds.has(it.id)) { S.gradedIds.add(it.id); applySrs(it, correct, sk); }
+      if (ex.graded && !S.gradedIds.has(it.id)) { S.gradedIds.add(it.id); applySrs(it, correct, sk, partial); }
       touch(it);
     }
     const affix = ex.type === 'transfer' ? ex.data.affix : (ex.type === 'build' && it ? it.affix : null);
     if (affix) { const p = DB.patterns[affix] || {n:0, ok:0, t:0}; p.n++; if (correct) p.ok++; p.t = now; DB.patterns[affix] = p; }
     if (!correct) {
-      DB.events.push({t:now, id:ex.id || ('lib:' + (ex.data && ex.data.e ? ex.data.e.w : '')), k:CAT_OF[sk] || 'usage', s:sk, a:affix || (it && it.affix) || ''});
+      DB.events.push({t:now, id:ex.id || ('lib:' + (ex.data && ex.data.e ? ex.data.e.w : '')), k:cat, s:sk, a:affix || (it && it.affix) || ''});
       if (DB.events.length > 800) DB.events = DB.events.slice(-800);
       if (it) S.wrongIds.add(it.id);
-      if (it && ex.graded && S.mode === 'review') {
+      if (it && ex.graded && S.mode === 'review' && !partial) {
         ex.info.nudged = nudgeRelated(it);
         queueFollowUps(it, ex);
       }
@@ -846,6 +945,7 @@ function renderSession(){
       <section class="fb" id="fbCard" hidden></section>
     </div>`;
   if (ex.done) showFeedback(ex);
+  else lockInput();          // a second tap on "Continue" must not land on the new card
 }
 function exHead(ex){
   const it = ex.id ? getItem(ex.id) : null;
@@ -888,6 +988,7 @@ function exHtml(ex){
           <div class="bigword" style="font-size:clamp(26px,5vw,38px)">${esc(it.en)}</div>
           ${hint ? `<div class="hint-line">Starts with <b>${esc(hint)}</b></div>` : ''}
           <div class="type-row"><input id="ans" class="txt" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Your answer"><button class="btn primary" data-act="type-check">Check</button></div>
+          <div id="altMsg" class="step-note" hidden></div>
           ${umlautPad()}
           <div class="ex-actions"><button class="btn quiet sm" data-act="hint">Show a letter</button><button class="btn quiet sm" data-act="give-up">I don't know</button></div>`;
       }
@@ -898,22 +999,35 @@ function exHtml(ex){
     case 'transfer': {
       const src = ex.type === 'transfer' ? d.pseudo : it;
       const step1Pending = !!(d.step1 && d.s1 === null);
+      // the step-1 result stays on screen until the learner moves on; a wrong pick is never auto-advanced
+      const step1Review = !!(d.step1 && d.s1 === false && !d.s1ack);
       const elemLabel = src.kind === 'p1' ? 'Partizip I (+d)' : src.kind === 'p2' ? 'Partizip II' : affixLabel(src);
       const elemBlk = step1Pending ? '<span class="slot">?</span>' : blk(elemLabel, src.kind === 'prefix' ? 'pre' : (src.kind === 'p2' ? 'ge' : 'suf'));
       let eq;
-      if (src.kind === 'prefix') eq = `${elemBlk}<span class="plus">+</span>${blk(src.base || '?', 'base')}`;
+      const baseShown = src.base || (G.segment(src).find(sg => sg[1] === 'base') || [])[0] || '?';   // no base word saved: show the stem block
+      if (src.kind === 'prefix') eq = `${elemBlk}<span class="plus">+</span>${blk(baseShown, 'base')}`;
       else if (src.kind === 'compound') eq = G.segment(src).map(([t, r]) => blk(t, r)).join('<span class="plus">+</span>');
-      else eq = `${blk(src.base || '?', 'base')}<span class="plus">+</span>${elemBlk}`;
+      else eq = `${blk(baseShown, 'base')}<span class="plus">+</span>${elemBlk}`;
       const q = ex.type === 'transfer'
         ? `Same pattern, new word. Build the adjective that means <b>${esc(src.en)}</b>.`
-        : (d.step1 && d.s1 === null
-          ? (src.kind === 'p1' || src.kind === 'p2' ? `Which form of <b>${esc(src.base)}</b> means <b>${esc(src.en)}</b>?` : `Which building element makes an adjective meaning <b>${esc(src.en)}</b>?`)
-          : `Now assemble <b>${esc(src.en)}</b> from the blocks, in order.`);
+        : (step1Pending || step1Review
+          ? `<span class="step-tag">Step 1 of 2</span> ${src.kind === 'p1' || src.kind === 'p2' ? `Which form of <b>${esc(src.base)}</b> means <b>${esc(src.en)}</b>?` : `Which building element makes an adjective meaning <b>${esc(src.en)}</b>?`}`
+          : `${d.step1 ? '<span class="step-tag">Step 2 of 2</span> ' : ''}Now assemble <b>${esc(src.en)}</b> from the blocks, in order.`);
       let body = `<div class="eq">${eq}</div>`;
-      if (d.step1 && d.s1 === null) {
-        body += `<div class="opts">${d.step1.opts.map((o, i) => `<button class="opt" data-act="b-step1" data-i="${i}"><span class="k">${i + 1}</span><span class="${(o === 'p1' || o === 'p2') ? '' : 'word'}">${esc(optLabel(o))}</span></button>`).join('')}</div>`;
+      const s1Note = () => {
+        const right = d.step1.opts[d.step1.ans], a = affixInfo(right);
+        return `You chose <b>${esc(optLabel(d.step1.opts[d.picked]))}</b>. The element is <b>${esc(optLabel(right))}</b>${a && a.meaning ? ` (${esc(a.meaning)})` : ''}.`;
+      };
+      if (step1Pending || step1Review) {
+        body += `<div class="opts">${d.step1.opts.map((o, i) => {
+          const cls = step1Review ? (i === d.step1.ans ? 'right' : (i === d.picked ? 'wrong' : '')) : '';
+          return `<button class="opt ${cls}" data-act="b-step1" data-i="${i}" ${step1Review ? 'disabled' : ''}><span class="k">${i + 1}</span><span class="${(o === 'p1' || o === 'p2') ? '' : 'word'}">${esc(optLabel(o))}</span></button>`;
+        }).join('')}</div>`;
+        if (step1Review) body += `<div class="step-note" id="s1note">${s1Note()}</div>
+          <div class="ex-actions"><span class="kbd-hint">Enter to continue</span><button class="btn primary" data-act="b-step2" style="margin-left:auto">Now build the word</button></div>`;
       } else {
         const built = d.built.map(i => d.tray[i]);
+        if (d.step1 && d.s1 === false) body += `<div class="step-note" id="s1note">Step 1: ${s1Note()}</div>`;
         body += `<div class="build-out ${built.length ? '' : 'empty'}" data-ph="Tap the blocks in order">${built.map(c => blk(c.t, c.r, 'sm')).join('')}</div>
           <div class="tray">${d.tray.map((c, i) => `<button class="blk ${c.r} ${d.built.includes(i) ? 'used' : ''}" data-act="b-chip" data-i="${i}">${esc(c.t)}</button>`).join('')}</div>
           <div class="ex-actions"><div class="btn-row"><button class="btn quiet sm" data-act="b-undo">Undo</button><button class="btn quiet sm" data-act="b-clear">Clear</button></div>
@@ -1006,6 +1120,7 @@ function showFeedback(ex){
   let head, headCls;
   if (ex.correct === null) { head = 'Skipped.'; headCls = 'info'; }
   else if (ex.type === 'produce') { head = 'Saved.'; headCls = 'ok'; }
+  else if (!ex.correct && info.partial) { head = 'Half right.'; headCls = 'half'; }
   else { head = ex.correct ? (info.overridden ? 'Counted as correct.' : 'Correct.') : 'Not quite.'; headCls = ex.correct ? 'ok' : 'no'; }
   let why = '';
   switch (ex.type) {
@@ -1014,12 +1129,18 @@ function showFeedback(ex){
     case 'build': case 'transfer': {
       const src = ex.type === 'transfer' ? d.pseudo : it;
       rows.push(['Answer', wordHtml(src)]);
-      if (!ex.correct && info.built) rows.push(['You built', esc(info.built || '—')]);
-      if (d.step1 && info.s1 === false) rows.push(['Element', `${esc(optLabel(d.step1.opts[d.step1.ans]))}, not ${esc(optLabel(d.step1.opts[info.picked]))}`]);
+      // say exactly which step went wrong
+      if (d.step1 && info.s1 === false) rows.push(['Step 1', `You chose ${esc(optLabel(d.step1.opts[info.picked]))}. The element is ${esc(optLabel(d.step1.opts[d.step1.ans]))}.`]);
+      if (d.step1 && info.s1 === true && !ex.correct) rows.push(['Step 1', 'Right element.']);
+      if (info.partial) rows.push(['Step 2', 'You built the word correctly.']);
+      else if (!ex.correct && info.built) rows.push(d.step1 ? ['Step 2', `You built ${esc(info.built)}.`] : ['You built', esc(info.built)]);
       const a = affixInfo(src.affix) || (src.kind === 'p1' ? affixInfo('p1') : src.kind === 'p2' ? affixInfo('p2') : null);
       if (a && a.meaning) rows.push(['Pattern', `${esc(a.form)} = ${esc(a.meaning)}`]);
-      if (src.change) why = `Notice: ${esc(src.change)}`;
-      else if (G.segment(src).some(s => s[1] === 'fug')) why = 'The linking -s joins the noun to the ending.';
+      const notes = [];
+      if (info.partial && !ex.correct) notes.push(`The word itself is right; only the building element in step 1 was not.${ex.graded ? ' That is a small slip: the word moves down one box instead of starting again.' : ''}`);
+      if (src.change) notes.push(`Notice: ${esc(src.change)}`);
+      else if (G.segment(src).some(s => s[1] === 'fug')) notes.push('The linking -s joins the noun to the ending.');
+      why = notes.join('<br>');
       if (a && a.ex && ex.type === 'build') {
         const same = a.ex.filter(e => lc(e.w) !== lc(src.w)).slice(0, 4);
         if (same.length) rows.push(['Same pattern', `<span class="chain">${same.map(e => `<span title="${esc(e.en)}">${libWordHtml(e, a)}</span>`).join('<span class="arr">·</span>')}</span>`]);
@@ -1056,6 +1177,10 @@ function showFeedback(ex){
       rows.push(['Sentence', `${esc(full)} ${speakBtn(full)}`]);
       if (d.en) rows.push(['English', esc(d.en)]);
       if (!ex.correct && info.typed) rows.push(['You wrote', esc(info.typed)]);
+      if (!ex.correct && info.typed && info.typedMode) {
+        const t = cleanAnswer(info.typed), stem = lc(G.declStem(it.w));
+        if (t.startsWith(stem) || translit(t).startsWith(translit(stem)) || t === lc(it.w)) why = `Right word. Only the ending is different: here it is <b>${esc(d.form)}</b>.`;
+      }
       break;
     }
     case 'valency': {
@@ -1102,11 +1227,12 @@ function showFeedback(ex){
   let extra = '';
   if (info.nudged && info.nudged.length) extra += `<div class="transfer">Related words brought forward to tomorrow for a quick check: ${info.nudged.map(w => `<b>${esc(w)}</b>`).join(', ')}. They keep their boxes.</div>`;
   if (info.followUps) extra += `<div class="transfer">Two short follow-up questions about this word come later in this session.</div>`;
-  const canOverride = ex.correct === false && ['meaningPick','recall','decon','family','contrast','cloze','sense'].includes(ex.type) && !(ex.typed);
+  const canOverride = ex.correct === false && ((['meaningPick','recall','decon','family','contrast','cloze','sense'].includes(ex.type) && !(ex.typed)) || (ex.type === 'build' && info.partial));
+  const overrideLabel = info.partial ? 'Step 1 was a mis-tap — count it' : 'My answer also fits — count it';
   fb.innerHTML = `<div class="fb-head ${headCls}">${head}</div>
     <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>
     ${info.table ? `<div class="table-wrap">${info.table}</div>` : ''}${why ? `<div class="note">${why}</div>` : ''}${extra}
-    <div class="ex-actions">${canOverride ? '<button class="btn quiet sm" data-act="override">My answer also fits — count it</button>' : '<span></span>'}
+    <div class="ex-actions">${canOverride ? `<button class="btn quiet sm" data-act="override">${overrideLabel}</button>` : '<span></span>'}
       <button class="btn primary" data-act="next" id="nextBtn">${S && S.i + 1 >= S.queue.length ? 'Finish' : 'Continue'}</button></div>`;
   fb.hidden = false;
   $('#sessionWrap').classList.add('has-fb');
@@ -1135,7 +1261,7 @@ function renderSummary(){
   const ok = graded.filter(x => x.correct).length;
   const pct = graded.length ? Math.round(ok / graded.length * 100) : 0;
   const cats = {};
-  r.filter(x => x.correct === false).forEach(x => { const k = CAT_OF[x.sk] || 'usage'; cats[k] = (cats[k] || 0) + 1; });
+  r.filter(x => x.correct === false).forEach(x => { const k = x.cat || CAT_OF[x.sk] || 'usage'; cats[k] = (cats[k] || 0) + 1; });
   const wrong = Array.from(S.wrongIds).map(getItem).filter(Boolean);
   const mode = S.mode;
   view().innerHTML = `<div class="summary">
@@ -1161,29 +1287,53 @@ function handleOpt(i){
   if (['p1p2','cloze'].includes(ex.type)) { const g = $('#exCard .gap'); if (g) { g.textContent = d.opts[i]; g.classList.add(correct ? 'ok' : 'no'); } }
   finish(ex, correct, {picked:i});
 }
+// re-draw the current card; lock = ignore taps for a moment so a double tap cannot answer the new screen
+function renderCard(ex, lock){
+  const c = $('#exCard');
+  if (!c || cur() !== ex) return;
+  c.innerHTML = exHtml(ex);
+  if (lock) lockInput();
+}
+function lockInput(ms){ if (S) S.lockUntil = Date.now() + (ms || 400); }
+const inputLocked = () => !!(S && S.lockUntil && Date.now() < S.lockUntil);
+const step1Open = d => !!(d.step1 && (d.s1 === null || (d.s1 === false && !d.s1ack)));
 function handleStep1(i){
-  const ex = cur(); const d = ex.data;
+  const ex = cur(); if (!ex || ex.done) return;
+  const d = ex.data;
+  if (!d.step1 || d.s1 !== null || !(i >= 0 && i < d.step1.opts.length)) return;   // answered once only
   d.picked = i; d.s1 = i === d.step1.ans;
-  $$('#exCard .opt').forEach((b, k) => { b.disabled = true; if (k === d.step1.ans) b.classList.add('right'); else if (k === i) b.classList.add('wrong'); });
-  setTimeout(() => { $('#exCard').innerHTML = exHtml(ex); }, d.s1 ? 350 : 1100);
+  if (!d.s1) { renderCard(ex, true); return; }            // wrong: show the right element and wait for "Now build the word"
+  $$('#exCard .opt').forEach((b, k) => { b.disabled = true; if (k === i) b.classList.add('right'); });
+  setTimeout(() => { if (cur() === ex && !ex.done) renderCard(ex, true); }, 450);
+}
+function handleStep2(){
+  const ex = cur(); if (!ex || ex.done) return;
+  const d = ex.data;
+  if (!d.step1 || d.s1 !== false || d.s1ack) return;
+  d.s1ack = true;
+  renderCard(ex, true);
 }
 function handleBuild(action, i){
   const ex = cur(); if (!ex || ex.done) return;
   const d = ex.data;
-  if (action === 'chip') { if (!d.built.includes(i)) d.built.push(i); }
+  if (step1Open(d)) return;                                 // step 2 only after step 1
+  if (action === 'chip') { if (!(i >= 0 && i < d.tray.length)) return; if (!d.built.includes(i)) d.built.push(i); }
   if (action === 'undo') d.built.pop();
   if (action === 'clear') d.built = [];
   if (action === 'check') {
+    if (!d.built.length) return;
     const src = ex.type === 'transfer' ? d.pseudo : getItem(ex.id);
     const built = d.built.map(k => d.tray[k].t).join('');
     const ok2 = lc(built) === lc(src.w);
-    const correct = ok2 && (d.step1 ? d.s1 === true : true);
+    const s1ok = !d.step1 || d.s1 === true;
+    const correct = ok2 && s1ok;
     $$('#exCard button').forEach(b => b.disabled = true);
     const out = $('#exCard .build-out'); if (out) { out.style.borderColor = ok2 ? 'var(--ok)' : 'var(--bad)'; out.style.borderStyle = 'solid'; out.style.background = ok2 ? 'var(--ok-bg)' : 'var(--bad-bg)'; }
-    finish(ex, correct, {built, s1:d.s1, picked:d.picked});
+    // right word after a wrong element in step 1 = half right (a smaller penalty, and said plainly)
+    finish(ex, correct, {built, s1:d.s1, picked:d.picked, partial: ok2 && !s1ok});
     return;
   }
-  $('#exCard').innerHTML = exHtml(ex);
+  renderCard(ex);
 }
 function handleTyped(giveUp){
   const ex = cur(); if (!ex || ex.done) return;
@@ -1193,10 +1343,27 @@ function handleTyped(giveUp){
   if (!giveUp && !typed) { inp && inp.focus(); return; }
   const target = ex.type === 'cloze' ? ex.data.form : it.w;
   const correct = !giveUp && sameAnswer(typed, target);
+  if (!giveUp && !correct && ex.type === 'recall') {
+    // another real word with this meaning (a listed synonym, or a known word with the same English gloss) is not a mistake
+    const alt = recallAlternative(it, typed);
+    if (alt) {
+      const m = $('#altMsg');
+      if (m) { m.hidden = false; m.innerHTML = `<b>${esc(alt)}</b> also fits this meaning, but this card asks for a different word. Try again.`; }
+      if (inp) { inp.select(); inp.focus(); }
+      return;
+    }
+  }
   if (inp) { inp.classList.add(correct ? 'ok' : 'no'); inp.disabled = true; }
   if (ex.type === 'cloze') { const g = $('#exCard .gap'); if (g) { g.textContent = target; g.classList.add(correct ? 'ok' : 'no'); } }
   $$('#exCard button').forEach(b => b.disabled = true);
   finish(ex, correct, {typed: typed || '(no answer)', typedMode:true});
+}
+function recallAlternative(it, typed){
+  const cands = [...it.syn, ...(it.meanings || []).flatMap(m => m.syn || [])];
+  DB.items.forEach(o => { if (o.id !== it.id && o.en && glossOverlap(o.en, it.en)) cands.push(o.w); });
+  allLibraryWords().forEach(x => { if (lc(x.w) !== lc(it.w) && x.en && glossOverlap(x.en, it.en)) cands.push(x.w); });
+  const ants = antonymSet(it);
+  return cands.find(c => c && !ants.has(lc(c)) && lc(c) !== lc(it.w) && sameAnswer(typed, c)) || null;
 }
 function handleEnding(e){
   const ex = cur(); if (!ex || ex.done) return;
@@ -1419,7 +1586,7 @@ function setIfClean(key, id, value){ if (!ADD.dirty.has(key)) { const el = $('#'
 function runDetect(){
   const w = lc($('#f_w').value.trim());
   if (!w) { $('#detect').hidden = true; return; }
-  const d = G.analyze(w, deckWords().filter(x => lc(x) !== w));
+  const d = G.analyze(w, analyzeKnown(w));
   ADD.last = d;
   setIfClean('kind', 'f_kind', d.kind);
   if (!ADD.dirty.has('affix')) fillAffixSelect($('#f_kind').value, d.affix);
@@ -1452,6 +1619,7 @@ function renderDetect(){
   else if (a && d.kind !== 'simple') lines.push(a.sure ? 'Detected from the ending. Check the base word.' : 'This is a best guess from the spelling. Please check the type, base word and article.');
   if (d.partsRaw.length > 1 && d.partsRaw.join('') !== d.w) lines.push(`The blocks spell "${esc(d.partsRaw.join(''))}", not "${esc(d.w)}". Fix the split so they match.`);
   if (d.kind === 'suffix' && /^[A-ZÄÖÜ]/.test(d.base)) lines.push('Add the article to the base noun (der, die or das).');
+  if (d.kind === 'suffix' && !d.base && !['isch','ell','al'].includes(d.affix)) lines.push('Base word not detected (better empty than a made-up word). Type it with its article (der, die, das), or use AI analysis.');
   if (d.change) lines.push('Notice: ' + esc(d.change));
   const partner = $('#f_partner').value.trim();
   if (!partner && ADD.partnerSuggestion && d.kind === 'p1') lines.push(`Participle partner? The regular pattern gives <button type="button" class="tag" data-act="use-partner" data-w="${esc(ADD.partnerSuggestion)}">${esc(ADD.partnerSuggestion)}</button>. Use it only if the pair is real (like aufregend / aufgeregt).`);
@@ -1530,7 +1698,9 @@ async function bulkAdd(){
     const [wRaw, ...rest] = line.split(/\s*[=:–—]\s*|\s+-\s+/);
     const w = lc((wRaw || '').trim()); if (!w || /\s/.test(w)) { if (w) skipped.push(w); continue; }
     if (DB.items.some(x => lc(x.w) === w)) { skipped.push(w); continue; }
-    const d = G.analyze(w, deckWords());
+    const d = G.analyze(w, analyzeKnown(w));
+    // no review screen here, so only keep a base word that is confirmed (library, deck, families, or a typical noun ending)
+    if (d.kind === 'suffix' && d.source !== 'library' && !d.baseSure && ['iv','ant','ent'].includes(d.affix)) d.base = '';
     const p = G.partnerGuess(d, w);
     const it = normalize({id:uid(), w, en:rest.join(' ').trim() || d.en || '', kind:d.kind, affix:d.kind === 'p1' || d.kind === 'p2' ? d.kind : d.affix,
       base:d.base, parts:d.parts, change:d.change || '', partner:p && p.sure ? p.w : '', family:G.familyGuess(d, w), chapter:ch, created:Date.now()});
@@ -1647,7 +1817,7 @@ function renderStats(){
   const maxBox = Math.max(1, fresh, ...boxes);
   const since = now - 30 * DAY;
   const ev = DB.events.filter(e => e.t >= since);
-  const cats = ['direct','family','usage','transfer'].map(k => [k, ev.filter(e => e.k === k).length]);
+  const cats = ['direct','element','family','usage','transfer'].map(k => [k, ev.filter(e => e.k === k).length]).filter(([k, n]) => k !== 'element' || n);
   const maxCat = Math.max(1, ...cats.map(c => c[1]));
   const skillAgg = LOOP_ORDER.map(k => { let n = 0, ok = 0; items.forEach(it => { const s = it.skills[k]; if (s) { n += s.n; ok += s.ok; } }); return [k, n, ok]; }).filter(x => x[1]);
   const pats = Object.entries(DB.patterns).filter(([, p]) => p.n).map(([k, p]) => [k, p.n, p.ok]).sort((a, b) => a[2] / a[1] - b[2] / b[1]);
@@ -1749,7 +1919,7 @@ function importCSV(text){
   let n = 0;
   for (const r of rows.slice(start)) {
     const w = lc(col(r, 'word')); if (!w || /\s/.test(w)) continue;
-    const d = G.analyze(w, deckWords());
+    const d = G.analyze(w, analyzeKnown(w));
     const blocks = col(r, 'blocks').split('|').map(s => s.trim()).filter(Boolean);
     const kind = col(r, 'type') || d.kind;
     const fields = {w, en:col(r, 'meaning') || d.en || '', chapter:col(r, 'chapter'), page:col(r, 'page'), source:col(r, 'source') || 'Aspekte Beruf B2',
@@ -1796,6 +1966,7 @@ const ACT = {
   'next': () => nextCard(),
   'opt': el => handleOpt(+el.dataset.i),
   'b-step1': el => handleStep1(+el.dataset.i),
+  'b-step2': () => handleStep2(),
   'b-chip': el => handleBuild('chip', +el.dataset.i),
   'b-undo': () => handleBuild('undo'),
   'b-clear': () => handleBuild('clear'),
@@ -1805,18 +1976,19 @@ const ACT = {
   'hint': () => { const ex = cur(); if (!ex || ex.done) return; const target = ex.type === 'cloze' ? ex.data.form : getItem(ex.id).w; ex.data.hint = Math.min(target.length - 1, (ex.data.hint || 0) + 1); const v = $('#ans') ? $('#ans').value : ''; $('#exCard').innerHTML = exHtml(ex); const a = $('#ans'); if (a) { a.value = v; a.focus(); } },
   'end-pick': el => handleEnding(el.dataset.e),
   'end-hint': () => { const h = $('#endHint'); if (h) h.hidden = false; },
-  'v-prep': el => { const ex = cur(); if (ex.done) return; ex.data.pp = el.dataset.p; $('#exCard').innerHTML = exHtml(ex); },
-  'v-case': el => { const ex = cur(); if (ex.done) return; ex.data.cc = el.dataset.c; $('#exCard').innerHTML = exHtml(ex); },
-  'v-check': () => { const ex = cur(); if (ex.done) return; const d = ex.data; const ok = d.pp === d.p && d.cc === d.c; $$('#exCard button').forEach(b => b.disabled = true); finish(ex, ok, {}); },
+  'v-prep': el => { const ex = cur(); if (!ex || ex.done || ex.type !== 'valency') return; ex.data.pp = el.dataset.p; renderCard(ex); },
+  'v-case': el => { const ex = cur(); if (!ex || ex.done || ex.type !== 'valency') return; ex.data.cc = el.dataset.c; renderCard(ex); },
+  'v-check': () => { const ex = cur(); if (!ex || ex.done || ex.type !== 'valency') return; const d = ex.data; if (!d.pp || !d.cc) return; const ok = d.pp === d.p && d.cc === d.c; $$('#exCard button').forEach(b => b.disabled = true); finish(ex, ok, {pp:d.pp, cc:d.cc}); },
   'prod-check': () => handleProduce(false),
-  'm-left': el => { const ex = cur(); if (!ex || ex.done) return; ex.data.sel = +el.dataset.i; $('#exCard').innerHTML = exHtml(ex); },
+  'm-left': el => { const ex = cur(); if (!ex || ex.done || ex.type !== 'match') return; ex.data.sel = +el.dataset.i; renderCard(ex); },
   'm-right': el => {
-    const ex = cur(); if (!ex || ex.done) return; const d = ex.data;
+    const ex = cur(); if (!ex || ex.done || ex.type !== 'match') return; const d = ex.data;
     if (d.sel == null) { toast('First tap a German word.'); return; }
     const w = d.left[d.sel], g = d.right[+el.dataset.i];
+    if (d.done.includes(w)) return;
     if (d.key[w] === g) { d.done.push(w); d.sel = null; }
-    else { d.errors++; el.classList.add('wrong'); setTimeout(() => { if (!ex.done) $('#exCard').innerHTML = exHtml(ex); }, 450); return; }
-    $('#exCard').innerHTML = exHtml(ex);
+    else { d.errors++; el.classList.add('wrong'); setTimeout(() => { if (!ex.done) renderCard(ex); }, 450); return; }
+    renderCard(ex);
     if (d.done.length === d.left.length) finish(ex, d.errors === 0, {errors:d.errors});
   },
   'tr-show': () => { const ex = cur(); if (!ex || ex.done) return; ex.data.typed = ($('#prod') && $('#prod').value.trim()) || ''; ex.data.shown = true; $('#exCard').innerHTML = exHtml(ex); const t = $('#prod'); if (t) t.value = ex.data.typed; },
@@ -1864,6 +2036,8 @@ document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
   if (el) {
     if (el.tagName === 'A') return;
+    // just after a new card appears, ignore taps on it (the second half of a double tap on "Continue")
+    if (inputLocked() && el.closest('#exCard') && el.dataset.act !== 'speak') { e.preventDefault(); return; }
     const fn = ACT[el.dataset.act];
     if (fn) { e.preventDefault(); fn(el, e); }
     return;
@@ -1876,20 +2050,25 @@ document.addEventListener('keydown', e => {
   if (currentTab !== 'practice' || !S || S.finished || !$('#sheet').hidden) return;
   const ex = cur(); if (!ex) return;
   const typing = /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
+  const answerKey = (e.key === 'Enter' && !e.shiftKey) || /^[1-9]$/.test(e.key);
+  // a held-down key or a key pressed right as the card changes must not answer the next card
+  if (answerKey && (e.repeat || inputLocked())) { e.preventDefault(); return; }
+  const isBuild = ex.type === 'build' || ex.type === 'transfer';
   if (e.key === 'Enter' && !e.shiftKey) {
     if (ex.done || ex.type === 'intro') { e.preventDefault(); nextCard(); return; }
     if (typing && document.activeElement.id === 'ans') { e.preventDefault(); handleTyped(false); return; }
-    if ((ex.type === 'build' || ex.type === 'transfer') && ex.data.built && ex.data.built.length && !typing) { e.preventDefault(); handleBuild('check'); return; }
+    if (isBuild && ex.data.step1 && ex.data.s1 === false && !ex.data.s1ack && !typing) { e.preventDefault(); handleStep2(); return; }
+    if (isBuild && !step1Open(ex.data) && ex.data.built && ex.data.built.length && !typing) { e.preventDefault(); handleBuild('check'); return; }
     return;
   }
   if (typing || ex.done) return;
   if (/^[1-9]$/.test(e.key)) {
     const k = +e.key - 1;
     if (ex.type === 'ending') { const b = $$('#exCard .endings .blk')[k]; if (b) b.click(); return; }
-    if ((ex.type === 'build' || ex.type === 'transfer') && !(ex.data.step1 && ex.data.s1 === null)) { const b = $$('#exCard .tray .blk')[k]; if (b) b.click(); return; }
+    if (isBuild && !step1Open(ex.data)) { const b = $$('#exCard .tray .blk')[k]; if (b) b.click(); return; }
     const b = $$('#exCard .opt:not(:disabled)')[k]; if (b) b.click();
   }
-  if (e.key === 'Backspace' && (ex.type === 'build' || ex.type === 'transfer')) { e.preventDefault(); handleBuild('undo'); }
+  if (e.key === 'Backspace' && isBuild) { e.preventDefault(); handleBuild('undo'); }
 });
 $('#importFile').addEventListener('change', e => { const f = e.target.files[0]; if (f) importFile(f); e.target.value = ''; });
 $('#syncBtn').addEventListener('click', () => { if (['auth','setup','err','local'].includes(Sync.state)) openSyncDialog(); else Sync.run(); });

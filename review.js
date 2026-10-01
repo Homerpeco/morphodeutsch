@@ -342,7 +342,7 @@ function saveReview(){
   else {
     const b = REV.base || {};
     it = normalize(Object.assign({id:uid(), created:Date.now(), source:b.source || 'Aspekte Beruf B2', chapter:b.chapter || '', page:b.page || ''}, fields));
-    if (!f.on) { const dd = G.analyze(w, deckWords()); Object.assign(it, {kind:dd.kind, affix:dd.affix, base:dd.base, parts:dd.parts, change:dd.change || ''}); }
+    if (!f.on) { const dd = G.analyze(w, analyzeKnown(w)); Object.assign(it, {kind:dd.kind, affix:dd.affix, base:dd.base, parts:dd.parts, change:dd.change || ''}); }
     DB.items.push(it);
   }
   save();
