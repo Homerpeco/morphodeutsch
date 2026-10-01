@@ -6,7 +6,7 @@
   --bg:#f3f6fa; --surface:#ffffff; --surface-2:#f7f9fc; --line:#dce3ec; --line-2:#c9d3e0;
   --ink:#152033; --ink-2:#465267; --ink-3:#6f7b8f;
   --base:#2456e5; --fug:#c98a00; --suf:#08855f; --pre:#c42a5e; --ge:#7447d8;
-  --ok:#08855f; --ok-bg:#e3f5ee; --bad:#c42a5e; --bad-bg:#fbe8ef; --warn:#a66a00; --warn-bg:#fdf3dc;
+  --ok:#08855f; --ok-bg:#e3f5ee; --on-ok:#ffffff; --bad:#d42a1e; --bad-bg:#fde6e3; --warn:#a66a00; --warn-bg:#fdf3dc;
   --focus:#2456e5;
   --r-lg:16px; --r-md:12px; --r-sm:8px;
   --shadow:0 1px 2px rgba(21,32,51,.06), 0 4px 16px rgba(21,32,51,.06);
@@ -18,7 +18,7 @@
   --bg:#0e1420; --surface:#162033; --surface-2:#1b273d; --line:#27354c; --line-2:#34445e;
   --ink:#e7ecf5; --ink-2:#b0bbcd; --ink-3:#8793a8;
   --base:#7c9dff; --fug:#f2bb3a; --suf:#35cf99; --pre:#f36b98; --ge:#ad8cff;
-  --ok:#35cf99; --ok-bg:#12352b; --bad:#f36b98; --bad-bg:#3a1a28; --warn:#f2bb3a; --warn-bg:#3a2e12;
+  --ok:#35cf99; --ok-bg:#12352b; --on-ok:#06261b; --bad:#ff6b5b; --bad-bg:#45191a; --warn:#f2bb3a; --warn-bg:#3a2e12;
   --focus:#7c9dff;
   --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
   color-scheme: dark;
@@ -28,7 +28,7 @@
     --bg:#0e1420; --surface:#162033; --surface-2:#1b273d; --line:#27354c; --line-2:#34445e;
     --ink:#e7ecf5; --ink-2:#b0bbcd; --ink-3:#8793a8;
     --base:#7c9dff; --fug:#f2bb3a; --suf:#35cf99; --pre:#f36b98; --ge:#ad8cff;
-    --ok:#35cf99; --ok-bg:#12352b; --bad:#f36b98; --bad-bg:#3a1a28; --warn:#f2bb3a; --warn-bg:#3a2e12;
+    --ok:#35cf99; --ok-bg:#12352b; --on-ok:#06261b; --bad:#ff6b5b; --bad-bg:#45191a; --warn:#f2bb3a; --warn-bg:#3a2e12;
     --focus:#7c9dff;
     --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
     color-scheme: dark;
@@ -194,7 +194,7 @@ p{margin:0 0 10px}
 
 .sentence{font-family:var(--f-word); font-weight:500; font-size:clamp(21px, 4.4vw, 27px); line-height:1.35; margin:6px 0 14px}
 .sentence .gap{display:inline-block; min-width:4.5em; border-bottom:3px solid var(--ink-3); text-align:center; color:var(--base); font-weight:700}
-.sentence .gap.ok{color:var(--ok); border-color:var(--ok)} .sentence .gap.no{color:var(--bad); border-color:var(--bad)}
+.sentence .gap.ok{color:var(--ok); border-color:var(--ok)} .sentence .gap.no{color:var(--bad); border-color:var(--bad); text-decoration:line-through; text-decoration-thickness:2px}
 .hint-line{color:var(--ink-3); font-size:15px; margin:-6px 0 12px}
 
 .opts{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px}
@@ -207,8 +207,21 @@ p{margin:0 0 10px}
 .opt.w{font-family:var(--f-word)}
 .opt:hover{border-color:var(--ink-3)}
 .opt.picked{border-color:var(--base); background:color-mix(in srgb, var(--base) 7%, var(--surface))}
-.opt.right{border-color:var(--ok); background:var(--ok-bg)}
-.opt.wrong{border-color:var(--bad); background:var(--bad-bg)}
+/* result states: right = solid green with a tick, wrong = red outline, crossed out, with a cross.
+   Shape and symbol differ too, so the two never look alike (also for red/green colour blindness). */
+.opt.right{border-color:var(--ok); background:var(--ok); color:var(--on-ok)}
+.opt.right .k{background:transparent; border-color:color-mix(in srgb, var(--on-ok) 50%, transparent); color:var(--on-ok)}
+.opt.wrong{border:2px solid var(--bad); background:var(--bad-bg); color:var(--bad)}
+.opt.wrong > span:not(.k){text-decoration:line-through; text-decoration-thickness:2px}
+.opt.wrong .k{border-color:var(--bad); color:var(--bad); background:transparent}
+.opt.right::after, .opt.wrong::after{margin-left:auto; padding-left:8px; font-size:20px; font-weight:800; line-height:1}
+.opt.right::after{content:'✓'} .opt.wrong::after{content:'✗'}
+.opt:disabled:not(.right):not(.wrong){opacity:.45}
+.blk.res-right{--c:var(--ok); background:var(--ok); color:var(--on-ok); border-color:var(--ok)}
+.blk.res-right::after{content:' ✓'}
+.blk.res-wrong{--c:var(--bad); background:var(--bad-bg); color:var(--bad); border-color:var(--bad); text-decoration:line-through; text-decoration-thickness:2px}
+.blk.res-wrong::after{content:'✗'; display:inline-block; margin-left:6px; text-decoration:none}
+.blk.res-dim{opacity:.35}
 .opt:disabled{cursor:default}
 .step-label{font-size:14px; font-weight:700; color:var(--ink-3); margin:14px 0 8px}
 .endings{display:flex; gap:8px; justify-content:center; flex-wrap:wrap}

@@ -853,7 +853,7 @@ function exHead(ex){
   return `<div class="ex-kind"><span>${TITLE[ex.type]}</span>${right}</div>`;
 }
 function optsHtml(opts, ex, word){
-  const cls = opts.some(o => o.length > 13) ? 'opts stack' : 'opts';
+  const cls = opts.some(o => o.length > 10) ? 'opts stack' : 'opts';
   return `<div class="${cls}">${opts.map((o, i) => `<button class="opt ${word ? 'w' : ''}" data-act="opt" data-i="${i}"><span class="k">${i + 1}</span><span>${esc(o)}</span></button>`).join('')}</div>`;
 }
 const umlautPad = () => `<div class="chips" style="margin-top:8px">${['ä','ö','ü','ß'].map(c => `<button class="chip" type="button" data-act="ins" data-ch="${c}" tabindex="-1">${c}</button>`).join('')}</div>`;
@@ -1179,7 +1179,7 @@ function handleBuild(action, i){
     const ok2 = lc(built) === lc(src.w);
     const correct = ok2 && (d.step1 ? d.s1 === true : true);
     $$('#exCard button').forEach(b => b.disabled = true);
-    const out = $('#exCard .build-out'); if (out) out.style.borderColor = ok2 ? 'var(--ok)' : 'var(--bad)';
+    const out = $('#exCard .build-out'); if (out) { out.style.borderColor = ok2 ? 'var(--ok)' : 'var(--bad)'; out.style.borderStyle = 'solid'; out.style.background = ok2 ? 'var(--ok-bg)' : 'var(--bad-bg)'; }
     finish(ex, correct, {built, s1:d.s1, picked:d.picked});
     return;
   }
@@ -1202,7 +1202,7 @@ function handleEnding(e){
   const ex = cur(); if (!ex || ex.done) return;
   const right = ex.data.fr.ending;
   const correct = e === right;
-  $$('#exCard .endings .blk').forEach(b => { b.disabled = true; if (b.dataset.e === right) b.style.background = 'var(--ok-bg)'; else if (b.dataset.e === e) b.style.background = 'var(--bad-bg)'; });
+  $$('#exCard .endings .blk').forEach(b => { b.disabled = true; b.classList.add(b.dataset.e === right ? 'res-right' : (b.dataset.e === e ? 'res-wrong' : 'res-dim')); });
   const g = $('#exCard .gap'); if (g) { g.textContent = e; g.classList.add(correct ? 'ok' : 'no'); }
   finish(ex, correct, {picked:e});
 }
