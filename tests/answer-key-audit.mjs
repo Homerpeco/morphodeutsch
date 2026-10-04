@@ -353,6 +353,13 @@ async function inPageAudit(opts){
     }
   }
 
+  // the coloured pieces of every word (deck and pattern library) must spell the word; the lab keeps using the first split
+  for (const it of DB.items) {
+    if (deepSeg(it).map(x => x[0]).join('') !== it.w) F(it.w, 'the coloured pieces do not spell the word');
+    if (G.segment(it).map(x => x[0]).join('') !== it.w) F(it.w, 'the first split does not spell the word');
+  }
+  for (const a of AFFIXES) for (const e of a.ex) if (deepSeg({w:e.w, parts:e.parts, kind:a.kind, affix:a.id}).map(x => x[0]).join('') !== e.w) F(e.w, 'library word: the coloured pieces do not spell the word');
+
   const TYPES = ['meaningPick','recall','recall*','build','decon','family','contrast','p1p2','ending','cloze','cloze*','valency','sense','match','translate','produce'];
   for (const it of DB.items.slice()) {
     for (const T of TYPES) {
