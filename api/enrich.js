@@ -1,12 +1,13 @@
 // /api/enrich — AI analysis of one adjective for MorphoDeutsch.
-// POST {word, section?, draft?}  →  {ok, model, section, data}
+// POST {word, section?, draft?}  →  {ok, model, section, data, attempts}   (errors: {error, attempts})
+// Every attempt is also logged as one "[enrich] {...}" line (Vercel → project → Logs), with the start and end of a bad answer.
 // section: all | formation | relations | examples | collocations | family | grammar (the app shows the result for review
 // and saves nothing on its own).
 //
 // Vercel setup: GEMINI_API_KEY (Google AI Studio key). Protected by the same SYNC_KEY as /api/adjectives,
 // so nobody else can spend the Gemini quota.
 
-import { enrich, EnrichError } from './_enrich.js';
+import { enrich, EnrichError, trailText } from './_enrich.js';
 
 export const config = { maxDuration: 60 };
 
@@ -26,11 +27,13 @@ export default async function handler(req, res) {
   try { if (typeof body === 'string') body = JSON.parse(body); } catch { body = {}; }
   body = body || {};
   try {
-    const out = await enrich(body.word, { section: body.section, draft: body.draft, key });
-    return res.status(200).json({ ok: true, ...out });
+    const { trail, ...out } = await enrich(body.word, { section: body.section, draft: body.draft, key });
+    return res.status(200).json({ ok: true, ...out, attempts: trailText(trail) });
   } catch (e) {
     const err = e instanceof EnrichError ? e : new EnrichError(String((e && e.message) || e));
+    if (!(e instanceof EnrichError)) console.error('[enrich] crash', e);
     if (err.retryAfter) res.setHeader('Retry-After', String(err.retryAfter));
-    return res.status(err.status || 502).json({ error: err.message, retryAfter: err.retryAfter || undefined });
+    // "attempts" says what each try returned (model, request shape, finish reason), so a failure can be diagnosed from the phone
+    return res.status(err.status || 502).json({ error: err.message, retryAfter: err.retryAfter || undefined, attempts: trailText(err.trail) });
   }
 }
