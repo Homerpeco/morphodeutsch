@@ -5,7 +5,7 @@
 :root{
   --bg:#f3f6fa; --surface:#ffffff; --surface-2:#f7f9fc; --line:#dce3ec; --line-2:#c9d3e0;
   --ink:#152033; --ink-2:#465267; --ink-3:#6f7b8f;
-  --base:#2456e5; --fug:#c98a00; --suf:#08855f; --pre:#c42a5e; --ge:#7447d8;
+  --base:#2456e5; --fug:#c98a00; --suf:#08855f; --pre:#c42a5e; --ge:#7447d8; --pre2:#c2410c; --suf2:#4d7c0f;
   --ok:#08855f; --ok-bg:#e3f5ee; --on-ok:#ffffff; --bad:#d42a1e; --bad-bg:#fde6e3; --warn:#a66a00; --warn-bg:#fdf3dc;
   --focus:#2456e5;
   --r-lg:16px; --r-md:12px; --r-sm:8px;
@@ -17,7 +17,7 @@
 :root[data-theme="dark"]{
   --bg:#0e1420; --surface:#162033; --surface-2:#1b273d; --line:#27354c; --line-2:#34445e;
   --ink:#e7ecf5; --ink-2:#b0bbcd; --ink-3:#8793a8;
-  --base:#7c9dff; --fug:#f2bb3a; --suf:#35cf99; --pre:#f36b98; --ge:#ad8cff;
+  --base:#7c9dff; --fug:#f2bb3a; --suf:#35cf99; --pre:#f36b98; --ge:#ad8cff; --pre2:#ff8a4c; --suf2:#a8d84e;
   --ok:#35cf99; --ok-bg:#12352b; --on-ok:#06261b; --bad:#ff6b5b; --bad-bg:#45191a; --warn:#f2bb3a; --warn-bg:#3a2e12;
   --focus:#7c9dff;
   --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
@@ -27,7 +27,7 @@
   :root:not([data-theme="light"]){
     --bg:#0e1420; --surface:#162033; --surface-2:#1b273d; --line:#27354c; --line-2:#34445e;
     --ink:#e7ecf5; --ink-2:#b0bbcd; --ink-3:#8793a8;
-    --base:#7c9dff; --fug:#f2bb3a; --suf:#35cf99; --pre:#f36b98; --ge:#ad8cff;
+    --base:#7c9dff; --fug:#f2bb3a; --suf:#35cf99; --pre:#f36b98; --ge:#ad8cff; --pre2:#ff8a4c; --suf2:#a8d84e;
     --ok:#35cf99; --ok-bg:#12352b; --on-ok:#06261b; --bad:#ff6b5b; --bad-bg:#45191a; --warn:#f2bb3a; --warn-bg:#3a2e12;
     --focus:#7c9dff;
     --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
@@ -47,6 +47,8 @@ a{color:var(--base)}
 
 /* ---------- morpheme colours ---------- */
 .m-base{color:var(--base)} .m-fug{color:var(--fug)} .m-suf{color:var(--suf)} .m-pre{color:var(--pre)} .m-ge{color:var(--ge)}
+/* a second prefix or a second ending in the same word gets its own shade of the same family (un·zer, ung·s·voll) */
+.m-pre2{color:var(--pre2)} .m-suf2{color:var(--suf2)}
 .word{font-family:var(--f-word); font-weight:700; letter-spacing:-.01em; white-space:nowrap}
 .word .m-fug{text-decoration:underline; text-decoration-thickness:2px; text-underline-offset:3px}
 
@@ -55,7 +57,7 @@ a{color:var(--base)}
   font-family:var(--f-word); font-weight:700; font-size:20px; color:var(--c); background:var(--surface);
   border:2px solid color-mix(in srgb, var(--c) 45%, var(--line)); border-bottom-width:5px; border-radius:10px;
   line-height:1.1; white-space:nowrap}
-.blk.base{--c:var(--base)} .blk.fug{--c:var(--fug)} .blk.suf{--c:var(--suf)} .blk.pre{--c:var(--pre)} .blk.ge{--c:var(--ge)}
+.blk.base{--c:var(--base)} .blk.fug{--c:var(--fug)} .blk.suf{--c:var(--suf)} .blk.pre{--c:var(--pre)} .blk.ge{--c:var(--ge)} .blk.pre2{--c:var(--pre2)} .blk.suf2{--c:var(--suf2)}
 .blk.neutral{--c:var(--ink-2)}
 .blk.sm{min-height:32px; font-size:15px; padding:3px 9px; border-bottom-width:4px; border-radius:8px}
 button.blk{cursor:pointer; transition:transform .08s, background .12s}
@@ -430,3 +432,18 @@ dl.gram dd{margin:0}
 .mcol{display:flex; flex-direction:column; gap:8px}
 .match .opt{min-height:48px; font-size:16px}
 @media (max-width:480px){ .match .opt{font-size:14.5px; padding:8px 10px} }
+
+/* all building blocks with what each piece means, and the derivation chain */
+.morph-row{display:flex; flex-wrap:wrap; gap:10px 8px; align-items:flex-start}
+.morph{display:inline-flex; flex-direction:column; align-items:center; gap:4px; max-width:9.5em}
+.morph-g{font-size:12.5px; line-height:1.25; color:var(--ink-3); text-align:center}
+.chain.deriv{gap:6px 6px}
+.chain.deriv .word{font-size:17px}
+.deep-build h3{margin-bottom:8px}
+.rv-attempts{margin:10px 0 0; padding:8px 10px; border-radius:10px; background:var(--surface-2, rgba(127,127,127,.12)); font-size:12.5px; color:var(--ink-3); overflow-wrap:anywhere}
+.rv-attempts summary{cursor:pointer; font-weight:700}
+.rv-attempts ul{margin:6px 0 0; padding-left:16px}
+.rv-deep{margin:4px 0 8px; padding:10px 12px; border:1px solid var(--line); border-radius:12px}
+.rv-deep.off{opacity:.45}
+.rv-deep .sec{margin-top:0}
+.rv-deep .field{margin-top:12px; margin-bottom:0}

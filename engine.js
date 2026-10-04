@@ -232,10 +232,13 @@ const G = (() => {
     // 2) prefixes
     if (w.startsWith('inter') && w.length > 9) return {kind:'prefix', affix:'inter', base:w.slice(5), parts:['inter', w.slice(5)], sure:true};
     if (w.startsWith('hoch') && w.length > 8) return {kind:'prefix', affix:'hoch', base:w.slice(4), parts:['hoch', w.slice(4)], sure:true};
-    if (w.startsWith('un') && !w.startsWith('unter') && w.length > 6) {
+    // un- + adjective. Not the Latin uni- words (universal, uniform, unilateral): there "un" is no prefix.
+    if (w.startsWith('un') && !w.startsWith('unter') && w.length > 6 && !/^uni(vers|form|lateral|kat|son|sex|on)/.test(w)) {
       const rest = w.slice(2);
       const inner = analyzeCore(rest, knownWords);
-      return {kind:'prefix', affix:'un', base:rest, parts:['un', rest], sure: knownWords.has(rest)};
+      // sure when the rest is a known word, or when its own pieces can be confirmed (zerbrechlich = zer + brech(en) + lich)
+      const restOk = knownWords.has(rest) || (typeof MORPH !== 'undefined' && MORPH.confirmed(MORPH.adjectivePieces(rest)));
+      return {kind:'prefix', affix:'un', base:rest, parts:['un', rest], sure: restOk};
     }
     for (const [pre, rest] of [['in', w.slice(2)], ['il', w.slice(2)], ['ir', w.slice(2)], ['im', w.slice(2)]])
       if (w.startsWith(pre) && knownWords.has(rest)) return {kind:'prefix', affix:'in', base:rest, parts:[pre, rest], sure:true};

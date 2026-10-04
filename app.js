@@ -74,6 +74,9 @@ function normalize(x){
   if (!it.skills || typeof it.skills !== 'object') it.skills = {};
   it.w = (it.w || '').trim();
   if (!it.parts.length || it.parts.join('') !== it.w) it.parts = [it.w];
+  // full split saved from an AI analysis: [{t, k, gloss, lemma}] must spell the word, else the confirmed local split is used
+  if (!Array.isArray(it.morphemes) || it.morphemes.map(m => (m && m.t) || '').join('') !== it.w) delete it.morphemes;
+  if (!Array.isArray(it.chain) || it.chain.length < 2) delete it.chain;
   return it;
 }
 function seedItem(s){
@@ -217,11 +220,35 @@ function affixLabel(it){
   const a = affixInfo(it.affix);
   return a ? a.form : '';
 }
-function wordHtml(it, cls){
-  const seg = G.segment(it);
-  return `<span class="word ${cls || ''}">${seg.map(([t, r]) => `<span class="m-${r}">${esc(t)}</span>`).join('')}</span>`;
+// Every piece of the word: the split saved from an AI analysis, else the confirmed local split (morph.js).
+// The first split (it.parts) stays what the exercises use; this is only for showing the word.
+function deepPieces(it){
+  if (Array.isArray(it.morphemes) && it.morphemes.length && it.morphemes.map(m => m.t).join('') === it.w) return it.morphemes;
+  return MORPH.deepen(G.segment(it), it.kind, {affix:it.affix});
 }
-function libWordHtml(e, a){ return wordHtml({w:e.w, parts:e.parts, kind:a.kind}); }
+const deepSeg = it => MORPH.roles(deepPieces(it));
+function wordHtml(it, cls){
+  return `<span class="word ${cls || ''}">${deepSeg(it).map(([t, r]) => `<span class="m-${r}">${esc(t)}</span>`).join('')}</span>`;
+}
+function libWordHtml(e, a){ return wordHtml({w:e.w, parts:e.parts, kind:a.kind, affix:a.id}); }
+// "All building blocks" with what each piece means, and the derivation chain (AI analysis only: never invented)
+function pieceGloss(p){
+  if (p.k === 'root') return p.lemma ? `root: ${p.lemma}` : (p.gloss ? `root: ${p.gloss}` : 'root');
+  if (p.gloss) return p.gloss;
+  const a = (p.k === 'prefix' || p.k === 'suffix') ? AFFIXES.find(x => x.id === lc(p.t) && x.kind === p.k) : null;
+  return (a && a.meaning) || MORPH.glossOf(p) || '';
+}
+function deepBuildHtml(it, opts){
+  const o = opts || {};
+  const pieces = deepPieces(it), seg = MORPH.roles(pieces);
+  const deeper = pieces.length > G.segment(it).length;
+  const chain = Array.isArray(it.chain) && it.chain.length >= 2 ? it.chain : null;
+  if (!o.always && !deeper && !chain) return '';
+  const row = pieces.length > 1 ? `<div class="morph-row">${pieces.map((p, i) => `<span class="morph"><span class="blk ${seg[i][1]} sm">${esc(p.t)}</span><span class="morph-g">${esc(pieceGloss(p))}</span></span>`).join('')}</div>` : '';
+  const ch = chain ? `<div class="chain deriv">${chain.map((c, i) => i === chain.length - 1 && lc(c) === lc(it.w) ? wordHtml(it) : `<span class="tag">${esc(c)}</span>`).join('<span class="arr">→</span>')}</div>` : '';
+  if (!row && !ch) return '';
+  return `<div class="sec deep-build">${row ? `<h3>All building blocks</h3>${row}` : ''}${ch ? `<h3${row ? ' style="margin-top:12px"' : ''}>Built step by step</h3>${ch}` : ''}</div>`;
+}
 function blk(text, role, cls){ return `<span class="blk ${role} ${cls || ''}">${esc(text)}</span>`; }
 function formationText(it){
   switch (it.kind) {
@@ -1632,6 +1659,7 @@ function openWord(id){
     <div class="detail-head"><h2 id="sheetTitle" class="bigword" style="margin:0">${wordHtml(it)}</h2>${speakBtn(it.w)}${statusPill(it)}</div>
     <div class="gloss">${esc(it.en || 'Meaning not added yet')}</div>
     ${formationDiagram(it, {big:true})}
+    ${deepBuildHtml(it)}
     ${it.meanings && it.meanings.length ? meaningsHtml(it) : ''}
     ${it.familyTyped && it.familyTyped.length ? typedFamilyHtml(it) : (familyChain(it) ? `<div class="sec"><h3>Word family</h3>${familyChain(it)}</div>` : '')}
     ${it.grammar ? grammarHtml(it) : ''}
@@ -1821,6 +1849,7 @@ function renderDetect(){
   box.innerHTML = `<div class="row">${d.kind === 'simple' ? blk(d.w, 'base') : G.segment(it).map(([t, r]) => blk(t, r, 'sm')).join('<span class="plus">+</span>')}
     <span class="plus">=</span><span class="word" style="font-size:24px">${wordHtml(it)}</span></div>
     <div class="say">${esc(KIND_LABEL[d.kind])}${d.kind !== 'simple' ? ': ' + esc(formationText(it)) : ''}</div>
+    ${deepPieces(it).length > G.segment(it).length ? `<div class="say">All pieces: ${deepSeg(it).map(([t, r]) => blk(t, r, 'sm')).join(' ')}</div>` : ''}
     ${lines.map(l => `<div class="say">${l}</div>`).join('')}`;
 }
 function addPrepRow(p){

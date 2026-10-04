@@ -4,7 +4,21 @@ Fifth app in the German-learning set (SprintDeutsch, Karteikasten, DeutschTube, 
 It teaches adjectives as **forms, families, phrases and choices**, not as lone translations.
 
 Every adjective is shown split into colour-coded building blocks:
-blue = base word, amber = linking element (Fugen-s), green = suffix / head, raspberry = prefix, violet = ge- of Partizip II.
+blue = root, amber = linking element (Fugen-s), green = suffix, raspberry = prefix, violet = ge- of Partizip II.
+A second prefix or a second ending in the same word gets its own shade (orange, olive), so **un·zer·brech·lich** and
+**ver·antwort·ung·s·voll** show every piece.
+
+## The full split and the first split
+- **First split** (`kind`, `base`, `parts`): the last step of the word's formation, e.g. un + zerbrechlich. The Derivation
+  lab and the other exercises use it.
+- **Full split** (`morphemes`): every piece down to the root, e.g. un · zer · brech · lich, with what each piece means
+  and the root's dictionary word (brechen). It colours the word everywhere and is shown on the word card as
+  *All building blocks*.
+- **Derivation chain** (`chain`): brechen → zerbrechen → zerbrechlich → unzerbrechlich (*Built step by step*). It comes
+  from the AI analysis only; the app never invents intermediate words.
+- Without AI, `morph.js` makes the full split itself, and only cuts what it can confirm: a prefix or an inner noun
+  ending is split off only when what is left is a known verb stem, a known ablaut stem (spruch → sprechen) or a known
+  root. Ernte, ernst, besser, Gefahr stay whole. The same file runs on the server to check the AI's answer.
 
 ## What it does
 - **Starter deck**: the 17 Beruf & Arbeit adjectives from *Aspekte Beruf B2*, each with base word, blocks, word family,
@@ -29,6 +43,15 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
   automatically**: a review screen lets you switch each item off, edit any text, add your own examples and
   regenerate one section (synonyms and opposites, examples, collocations, family, grammar, blocks).
   Saved analyses add three exercises: *Which meaning?*, *Match the family* and *English to German*.
+  The analysis also returns the full split and the derivation chain. The server checks them (pieces must spell the word,
+  the root must not still hold a prefix or suffix, the chain must end with the word and have a step per affix), asks the
+  model once more with the problem named if a check fails, and then splits any root further that `morph.js` can confirm.
+- **AI endpoint, built to survive bad answers**: JSON mode with a response schema; a generous output limit (thinking
+  tokens count towards it) with low thinking; request shapes a model rejects are replaced by simpler ones and the
+  working one is remembered; an invalid, empty or cut-off answer is retried on the same model before the weaker model
+  is used; code fences, trailing commas and cut-off JSON are repaired; an overloaded model gets one more try. Every
+  attempt is logged as an `[enrich] {...}` line in the Vercel logs (with the start and end of a bad answer), and the
+  error screen in the app lists what each attempt returned.
 
 ## Derivation lab
 - **Step 1: choose the element** (-voll, -lich, Partizip I or II, un- or in- …) for the meaning shown.
@@ -59,7 +82,14 @@ blue = base word, amber = linking element (Fugen-s), green = suffix / head, rasp
 - **No invented base words.** The detector only fills a base noun it can confirm (library, deck, families) or whose ending
   shows its gender; otherwise the field stays empty for you or the AI analysis to fill.
 
-### Answer-key audit (run before every release)
+### Tests (run before every release)
+- `node tests/morph-test.mjs`: 340 words through the full split, each with its exact expected pieces, including the
+  words that must stay whole.
+- `node tests/enrich-test.mjs`: the AI endpoint against a mocked Gemini (invalid JSON, cut-off answers, overload, quota,
+  rejected request shapes, a model that stops at un + zerbrechlich). No key or network needed.
+- `node tests/answer-key-audit.mjs`: see below.
+
+### Answer-key audit
 `node tests/answer-key-audit.mjs` (Playwright + Chromium). It builds a deck (starter words, an AI-analysed word from
 `tests/fixture-entfernt.json`, 20 words typed into the Add form), then answers every exercise type for every word right and
 wrong through the page (about 4,600 answers), checks the grammar of every ending question against its own declension
@@ -75,13 +105,14 @@ Optional `DICT=…/dictionary-de/index.dic` lists wrong options that are real Ge
 |---|---|
 | `index.html`, `styles.css` | page and design |
 | `data.js` | `AFFIXES` (pattern library), `SEED` (starter deck), `PPAIRS` (Partizip sentences), `PROMPTS` |
+| `morph.js` | the confirmed full split (verb, stem and root lists); used by the app and by `/api/enrich` |
 | `engine.js` | grammar: declension, noun forms, block segmentation, word-formation detection, Partizip II guesses |
 | `app.js` | app: storage, sync, practice engine, screens |
 | `api/adjectives.js` | sync endpoint (Vercel Blob) |
-| `api/enrich.js`, `api/_enrich.js` | AI analysis endpoint (Gemini): prompt, validation, model fallback |
+| `api/enrich.js`, `api/_enrich.js` | AI analysis endpoint (Gemini): prompt, schema, retries, validation, split check |
 | `review.js` | the AI review screen and how a reviewed analysis is saved |
 | `sw.js`, `manifest.webmanifest`, `icons/` | installable on the phone, works offline |
-| `tests/answer-key-audit.mjs` | the answer-key audit (not deployed: `.vercelignore`) |
+| `tests/` | `answer-key-audit.mjs`, `morph-test.mjs`, `enrich-test.mjs`, fixture (not deployed: `.vercelignore`) |
 
 Rule: every `parts` array must spell its word exactly (checked at start-up, error in the console otherwise).
 

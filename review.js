@@ -25,8 +25,8 @@ async function aiRequest(word, section, draft){
   if (r.status === 401) throw {kind:'auth', msg:'Enter your sync key first: the AI uses the same key, so nobody else can use your Gemini quota.'};
   if (r.status === 503 && /ai not configured/.test(j.error || '')) throw {kind:'setup', msg:'The AI is not set up on the server yet. In Vercel, open the morphodeutsch project, add the environment variable GEMINI_API_KEY (your Google AI Studio key) and redeploy.'};
   if (r.status === 503) throw {kind:'setup', msg:'Set the SYNC_KEY on the server first (Vercel → morphodeutsch → Environment Variables).'};
-  if (r.status === 429) throw {kind:'quota', msg:`Gemini's quota is used up for the moment. Try again in about ${j.retryAfter || 60} seconds.`};
-  throw {kind:'fail', msg:(j.error || 'The AI analysis failed') + '. Try again in a moment.'};
+  if (r.status === 429) throw {kind:'quota', attempts:j.attempts, msg:`Gemini's quota is used up for the moment. Try again in about ${j.retryAfter || 60} seconds.`};
+  throw {kind:'fail', attempts:j.attempts, msg:(j.error || 'The AI analysis failed') + '. Try again in a moment.'};
 }
 
 /* ---------- prepare / merge ---------- */
@@ -41,8 +41,14 @@ function prepMeaning(m){
   m.examples.forEach(e => { if (e.on == null) e.on = !e.check; });
   return m;
 }
+function prepDeep(d){
+  if (!Array.isArray(d.morphemes)) d.morphemes = [];
+  if (!Array.isArray(d.derivation)) d.derivation = [];
+  d.deep = {on: d.morphemes.length > 0 && d.morphemes.map(m => m.t).join('') === d.word};
+}
 function prepare(d, item){
   prepFormation(d.formation, item && item.kind);
+  prepDeep(d);
   d.meanings.forEach(prepMeaning);
   d.family.forEach(f => { f.on = f.confidence !== 'low'; });
   d.partner.on = !!d.partner.w;
@@ -60,7 +66,7 @@ function draftForServer(){
 }
 function mergeSection(sec, fresh){
   const d = REV.data;
-  if (sec === 'formation') { d.formation = prepFormation(fresh.formation, 'simple'); return; }
+  if (sec === 'formation') { d.formation = prepFormation(fresh.formation, 'simple'); d.morphemes = fresh.morphemes; d.derivation = fresh.derivation; prepDeep(d); return; }
   if (sec === 'family') { fresh.family.forEach(f => { f.on = f.confidence !== 'low'; }); d.family = fresh.family; return; }
   if (sec === 'grammar') { d.grammar = fresh.grammar; d.grammar.on = true; return; }
   for (const m of d.meanings) {
@@ -102,7 +108,8 @@ function reviewError(e){
   $('.sheet').innerHTML = `<button class="icon-btn close" data-act="sheet-close" aria-label="Close">✕</button>
     <h2 id="sheetTitle">No analysis for <span class="word">${esc(w)}</span></h2>
     <p>${esc(e.msg || 'The analysis failed.')}</p>
-    <div class="btn-row">${e.kind === 'auth' ? '<button class="btn primary" data-act="sync-open">Enter sync key</button>' : ''}
+    ${Array.isArray(e.attempts) && e.attempts.length ? `<details class="rv-attempts"><summary>What each attempt returned</summary><ul>${e.attempts.map(a => `<li>${esc(a)}</li>`).join('')}</ul></details>` : ''}
+    <div class="btn-row" style="margin-top:12px">${e.kind === 'auth' ? '<button class="btn primary" data-act="sync-open">Enter sync key</button>' : ''}
       ${['net','quota','fail'].includes(e.kind) ? `<button class="btn primary" data-act="rv-retry">Try again</button>` : ''}
       <button class="btn" data-act="sheet-close">Close</button></div>`;
 }
@@ -118,7 +125,7 @@ function renderReview(){
   const sheet = $('.sheet');
   const keepScroll = (sheet.closest('.sheet-wrap').scrollTop || 0) + sheet.scrollTop;
   const f = d.formation;
-  const fItem = normalize({w:d.word, kind:f.kind, parts:f.parts});
+  const fItem = normalize({w:d.word, kind:f.kind, parts:f.parts, affix:f.affix, morphemes:d.deep.on ? d.morphemes : undefined, chain:d.deep.on && d.derivation.length >= 2 ? d.derivation : undefined});
   const kinds = Object.entries(KIND_LABEL).map(([k, l]) => `<option value="${k}" ${f.kind === k ? 'selected' : ''}>${l}</option>`).join('');
   const item = REV.itemId ? getItem(REV.itemId) : null;
   const mOpts = sel => `<option value="">all meanings</option>` + d.meanings.map((m, i) => `<option value="${esc(m.id)}" ${sel === m.id ? 'selected' : ''}>${i + 1}. ${esc(m.gloss.slice(0, 30))}</option>`).join('');
@@ -193,6 +200,10 @@ function renderReview(){
         <div class="field"><label>Base word</label><input class="txt" data-rv="formation.base" value="${esc(f.base)}"></div>
         <div class="field"><label>Blocks</label><input class="txt" data-rv="formation.parts" value="${esc(f.parts.join(' | '))}" autocapitalize="off" spellcheck="false"></div>
       </div>
+      ${d.morphemes.length ? `<label class="rv-row" style="margin-top:6px"><input type="checkbox" data-on="deep" ${d.deep.on ? 'checked' : ''}> Keep the full split and the step-by-step chain</label>
+      <div class="rv-deep ${d.deep.on ? '' : 'off'}">${deepBuildHtml(normalize({w:d.word, kind:f.kind, parts:f.parts, affix:f.affix, morphemes:d.morphemes}), {always:true})}
+        <div class="field"><label>Built step by step <span class="muted small">(one affix per step, separated by →)</span></label><input class="txt" data-rv="derivation" value="${esc(d.derivation.join(' → '))}" autocapitalize="off" spellcheck="false"></div>
+      </div>` : ''}
       ${['p1','p2'].includes(f.kind) || d.partner.w ? `<label class="rv-row"><input type="checkbox" data-on="partner" ${d.partner.on ? 'checked' : ''}> Participle partner <input class="txt rv-inline" data-rv="partner.w" value="${esc(d.partner.w)}" placeholder="none"></label>${d.partner.note ? `<p class="small muted">${esc(d.partner.note)}</p>` : ''}` : ''}
     </section>
 
@@ -233,6 +244,7 @@ document.addEventListener('input', e => {
   if (el.dataset.rv) {
     const p = el.dataset.rv;
     if (p === 'formation.parts') rvSet(p, el.value.split(/[|+·]/).map(s => lc(s.trim())).filter(Boolean));
+    else if (p === 'derivation') rvSet(p, el.value.split(/→|->|>|,/).map(s => s.trim()).filter(Boolean));
     else if (p === 'grammar.notes') rvSet(p, el.value.split('\n').map(s => s.trim()).filter(Boolean));
     else rvSet(p, el.value);
     const em = p.match(/^meanings\.(\d+)\.examples\.(\d+)\./);
@@ -248,6 +260,7 @@ document.addEventListener('change', e => {
     if (target) target.on = el.checked;
     const row = el.closest('.rv-meaning, .rv-ex, .rv-fam, .rv-row');
     if (row && !row.classList.contains('rv-row')) row.classList.toggle('off', !el.checked);
+    if (el.dataset.on === 'deep') renderReview();
   }
   if (el.dataset.exist != null) { REV.existing[+el.dataset.exist].on = el.checked; el.closest('.rv-row').classList.toggle('off', !el.checked); }
   if (el.dataset.rv === 'formation.kind') renderReview();
@@ -329,7 +342,10 @@ function saveReview(){
     prep:meanings.flatMap(m => m.prep).filter(p => { const k = p.p + p.c; if (prepSeen.has(k)) return false; prepSeen.add(k); return true; }),
     ex:exPairs.map(e => e.de), exEn:exPairs.map(e => e.en || ''),
     grammar:d.grammar.on ? {predicative:d.grammar.predicative, attributive:d.grammar.attributive, comparison:d.grammar.comparison, notes:d.grammar.notes} : null,
-    aiAt:Date.now(), aiModel:REV.model
+    aiAt:Date.now(), aiModel:REV.model,
+    // the full split and the chain; switched off = the app shows its own confirmed split again
+    morphemes:d.deep.on && d.morphemes.map(m => m.t).join('') === w ? d.morphemes.map(m => ({t:m.t, k:m.k, gloss:m.gloss || '', lemma:m.lemma || ''})) : null,
+    chain:d.deep.on && d.derivation.length >= 2 ? d.derivation.slice(0, 8) : null
   };
   const f = d.formation;
   if (f.on) {
