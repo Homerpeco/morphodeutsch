@@ -1,5 +1,5 @@
 // /api/adjectives — MorphoDeutsch cloud copy (Vercel Blob).
-// GET        → the saved document {items, deleted, patterns, events, log, updatedAt} (empty document if none yet)
+// GET        → the saved document {items, deleted, patterns, events, log, wb, updatedAt} (empty document if none yet)
 // PUT / POST → save the document (the app merges first, so a PUT is always the union of both devices)
 //
 // Vercel setup:
@@ -31,7 +31,7 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const { blobs } = await list({ prefix: 'morphodeutsch/' });
       const doc = blobs.find(b => b.pathname === BLOB_PATH);
-      if (!doc) return res.status(200).json({ items: [], deleted: {}, patterns: {}, events: [], log: {}, updatedAt: null });
+      if (!doc) return res.status(200).json({ items: [], deleted: {}, patterns: {}, events: [], log: {}, wb: { it: {} }, updatedAt: null });
       const r = await fetch(doc.url + '?t=' + Date.now(), { cache: 'no-store' });
       return res.status(200).json(await r.json());
     }
@@ -45,8 +45,21 @@ export default async function handler(req, res) {
         patterns: body.patterns || {},
         events: Array.isArray(body.events) ? body.events.slice(-800) : [],
         log: body.log || {},
+        wb: { it: {} },   // workbook progress
         updatedAt: new Date().toISOString(),
       };
+      if (body.wb && typeof body.wb === 'object' && body.wb.it && typeof body.wb.it === 'object') doc.wb = { it: body.wb.it };
+      else {
+        // a device still running an older copy of the app does not know the workbook: keep what the cloud already has
+        try {
+          const { blobs } = await list({ prefix: 'morphodeutsch/' });
+          const cur = blobs.find(b => b.pathname === BLOB_PATH);
+          if (cur) {
+            const old = await (await fetch(cur.url + '?t=' + Date.now(), { cache: 'no-store' })).json();
+            if (old && old.wb && typeof old.wb === 'object' && old.wb.it && typeof old.wb.it === 'object') doc.wb = { it: old.wb.it };
+          }
+        } catch (e) { /* nothing saved yet, or not readable: go on with an empty workbook record */ }
+      }
       const text = JSON.stringify(doc);
       if (text.length > MAX_BYTES) return res.status(413).json({ error: 'document too large' });
       await put(BLOB_PATH, text, {
