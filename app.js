@@ -59,7 +59,7 @@ function speak(text){
 const KEY = 'morphodeutsch_v1', KEY_SYNC = 'morphodeutsch_sync_key', KEY_THEME = 'morphodeutsch_theme', KEY_UI = 'morphodeutsch_ui_v1';
 function lsGet(k){ try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v){ try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
-function blankDB(){ return {v:1, items:[], deleted:{}, patterns:{}, events:[], log:{}, seeded:false, settings:{size:12, newPer:5}}; }
+function blankDB(){ return {v:1, items:[], deleted:{}, patterns:{}, events:[], log:{}, wb:{it:{}}, seeded:false, settings:{size:12, newPer:5}}; }
 let DB = blankDB();
 let UI = {wordsFilter:'all', wordsQuery:'', size:12};
 try { UI = Object.assign(UI, JSON.parse(lsGet(KEY_UI) || '{}')); } catch (e) {}
@@ -99,6 +99,7 @@ function load(){
   const raw = lsGet(KEY);
   if (raw) { try { DB = Object.assign(blankDB(), JSON.parse(raw)); } catch (e) { DB = blankDB(); } }
   DB.items = (DB.items || []).map(normalize);
+  if (!DB.wb || typeof DB.wb !== 'object' || !DB.wb.it || typeof DB.wb.it !== 'object') DB.wb = {it:{}};   // workbook progress
   if (!DB.seeded) seedDeck();
   lsSet(KEY, JSON.stringify(DB));
 }
@@ -131,14 +132,27 @@ function mergeDB(L, R){
   const log = Object.assign({}, (R && R.log) || {});
   for (const [k, v] of Object.entries(L.log || {})) log[k] = Math.max(log[k] || 0, v);
   out.log = log;
+  out.wb = mergeWb(L.wb, R && R.wb);
+  return out;
+}
+// workbook progress: per item, the device that answered it last wins
+function mergeWb(a, b){
+  const out = {it:{}};
+  for (const src of [b, a]) for (const [k, v] of Object.entries((src && src.it) || {})) {
+    if (!v || typeof v !== 'object') continue;
+    const o = out.it[k];
+    if (!o || (v.t || 0) > (o.t || 0) || ((v.t || 0) === (o.t || 0) && (v.n || 0) >= (o.n || 0))) out.it[k] = v;
+  }
   return out;
 }
 function signature(d){
   const items = (d.items || []).map(it => it.id + ':' + (it.updatedAt || 0)).sort().join(',');
+  const wb = Object.values((d.wb && d.wb.it) || {});
   return [items, Object.keys(d.deleted || {}).length, (d.events || []).length,
-    Object.values(d.patterns || {}).reduce((a, p) => a + (p.n || 0), 0), Object.values(d.log || {}).reduce((a, n) => a + n, 0)].join('#');
+    Object.values(d.patterns || {}).reduce((a, p) => a + (p.n || 0), 0), Object.values(d.log || {}).reduce((a, n) => a + n, 0),
+    wb.reduce((a, r) => a + (r.n || 0), 0), wb.reduce((a, r) => Math.max(a, r.t || 0), 0)].join('#');
 }
-const docOf = d => ({items:d.items, deleted:d.deleted, patterns:d.patterns, events:d.events, log:d.log, updatedAt:new Date().toISOString()});
+const docOf = d => ({items:d.items, deleted:d.deleted, patterns:d.patterns, events:d.events, log:d.log, wb:d.wb || {it:{}}, updatedAt:new Date().toISOString()});
 
 const Sync = (() => {
   let state = 'off', timer = null, busy = false, again = false, lastOk = 0, reason = '';
@@ -168,7 +182,7 @@ const Sync = (() => {
       merged.seeded = DB.seeded; merged.settings = DB.settings;
       const changedHere = signature(merged) !== before;
       DB = merged; lsSet(KEY, JSON.stringify(DB));
-      if (changedHere) { updateBadges(); if (!S) route(); }
+      if (changedHere) { updateBadges(); if (!S && !(typeof wbBusy === 'function' && wbBusy())) route(); }   // never redraw a sheet someone is typing in
       if (signature(merged) !== signature(remote)) {
         const p = await fetch('/api/adjectives', {method:'PUT', headers:headers(), body:JSON.stringify(docOf(DB))});
         if (p.status === 401) { badge('auth', 'Tap to enter your sync key'); return; }
@@ -213,7 +227,9 @@ function openSyncDialog(){
 
 /* ======================= words: display helpers ======================= */
 const KIND_LABEL = {suffix:'Suffix', prefix:'Prefix', p1:'Partizip I', p2:'Partizip II', compound:'Compound', simple:'Base word'};
-const affixInfo = id => AFFIXES.find(a => a.id === id) || (id ? {id, form:'-' + id, kind:'suffix', group:'noun', meaning:'', note:'', ex:[]} : null);
+// an element the pattern library does not have (-abel, -gemäß, miss-, de- …) takes its label and meaning from the workbook's rules
+const wbAffix = id => { const e = typeof WB_ELEMS !== 'undefined' && WB_ELEMS[id]; return e && e.kind !== 'first' ? {id, form:e.form, kind:e.kind, group: e.kind === 'prefix' ? 'prefix' : 'noun', meaning:e.mean, note:e.joint, ex:[]} : null; };
+const affixInfo = id => AFFIXES.find(a => a.id === id) || wbAffix(id) || (id ? {id, form:'-' + id, kind:'suffix', group:'noun', meaning:'', note:'', ex:[]} : null);
 function affixLabel(it){
   if (it.kind === 'p1') return 'Partizip I (+d)';
   if (it.kind === 'p2') return 'Partizip II';
@@ -310,7 +326,7 @@ function statusPill(it){
 function allLibraryWords(){ return AFFIXES.flatMap(a => a.ex.map(e => ({w:e.w, en:e.en, a}))); }
 
 /* ======================= router & chrome ======================= */
-const TABS = ['practice','words','add','patterns','stats'];
+const TABS = ['practice','workbook','words','add','patterns','stats'];
 let currentTab = 'practice';
 function route(){
   const h = (location.hash || '#practice').slice(1);
@@ -1062,7 +1078,7 @@ function renderPracticeHome(){
       </section>
     </div>
     <h2 style="margin-top:28px">Drills</h2>
-    <div class="modules">${MODS.map(m => `<button class="module" data-act="module" data-mod="${m.id}"><h3>${m.title}</h3><div class="demo">${m.demo}</div><p>${m.p}</p><span class="avail">${m.n}</span></button>`).join('')}</div>`;
+    <div class="modules"><a class="module wb-card" href="#workbook"><h3>Workbook: Wortbildung der Adjektive</h3><div class="demo"><span class="word">der Regen</span><span class="muted">→</span><span class="word"><span class="m-base">regn</span><span class="m-fug">er</span><span class="m-suf">isch</span><span class="m-suf2">es</span> Wetter</span></div><p style="font-family:var(--f-ui);font-weight:400;color:var(--ink-2)">Build adjectives with suffixes and prefixes and write them into the gap, sheet by sheet.</p><span class="avail">${typeof WB_SETS !== 'undefined' ? `${WB_SETS.length} sheets, ${WB_SETS.reduce((a, s) => a + s.items.length, 0)} items` : ''}</span></a>${MODS.map(m => `<button class="module" data-act="module" data-mod="${m.id}"><h3>${m.title}</h3><div class="demo">${m.demo}</div><p>${m.p}</p><span class="avail">${m.n}</span></button>`).join('')}</div>`;
 }
 function renderSession(){
   const ex = cur();
@@ -1989,7 +2005,8 @@ async function lookupExamples(word){
 function renderPatterns(){
   const mine = id => DB.items.filter(it => it.affix === id);
   view().innerHTML = `
-    <div class="page-head"><div><h1>Patterns</h1><p class="lede" style="margin:0">The building elements behind your adjectives. Learn the pattern once and you can build words you have never seen.</p></div></div>
+    <div class="page-head"><div><h1>Patterns</h1><p class="lede" style="margin:0">The building elements behind your adjectives. Learn the pattern once and you can build words you have never seen.</p></div>
+      <a class="btn sm" href="#workbook">Practise them in the workbook</a></div>
     <div class="cols2">
       <section class="panel">
         <h2>Partizip I or Partizip II?</h2>
@@ -2089,6 +2106,7 @@ function renderStats(){
         <div class="act-lab"><span>${days[0][0].toLocaleDateString([], {day:'numeric', month:'short'})}</span><span>today</span></div>
       </section>
     </div>
+    ${typeof wbStatsHtml === 'function' ? wbStatsHtml() : ''}
     <section class="panel" style="margin-top:14px"><h2>Your data</h2>
       <p class="small muted">Saved in this browser${Sync.state === 'ok' ? ` and in the cloud${lastSync ? ' (last sync ' + lastSync + ')' : ''}` : ''}. Export a backup now and then.</p>
       <div class="btn-row">
@@ -2305,7 +2323,8 @@ $('#themeBtn').addEventListener('click', () => {
   document.documentElement.setAttribute('data-theme', next); lsSet(KEY_THEME, next);
 });
 
-const VIEWS = {practice:renderPractice, words:renderWords, add:renderAdd, patterns:renderPatterns, stats:renderStats};
+// the workbook lives in workbook.js, which is loaded after this file and draws itself once it is there
+const VIEWS = {practice:renderPractice, workbook:arg => { if (typeof renderWorkbook === 'function') renderWorkbook(arg); }, words:renderWords, add:renderAdd, patterns:renderPatterns, stats:renderStats};
 
 /* ======================= boot ======================= */
 (function boot(){

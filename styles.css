@@ -447,3 +447,107 @@ dl.gram dd{margin:0}
 .rv-deep.off{opacity:.45}
 .rv-deep .sec{margin-top:0}
 .rv-deep .field{margin-top:12px; margin-bottom:0}
+
+/* ---------- workbook (Wortbildung der Adjektive) ---------- */
+.wb-sheet{max-width:940px; margin:0 auto}
+.wb-headline{display:flex; align-items:center; gap:12px; margin:4px 0 14px}
+.wb-pill{display:inline-block; background:var(--ink-2); color:var(--surface); font-weight:700; font-size:13.5px; line-height:1.3; padding:4px 11px; border-radius:6px; white-space:nowrap}
+.wb-line{flex:1; height:2px; background:var(--line-2); min-width:12px}
+.wb-topic{color:var(--ink-3); font-weight:700; font-size:14.5px; text-align:right}
+.wb-task{color:var(--ink-2); font-size:16.5px; max-width:72ch; margin:0 0 12px}
+.wb-els{display:flex; flex-wrap:wrap; align-items:center; gap:6px 6px; margin:0 0 16px}
+.wb-el{--c:var(--suf); font-family:var(--f-word); font-weight:700; font-size:15.5px; line-height:1.2; padding:5px 10px; border-radius:9px;
+  border:1.5px solid color-mix(in srgb, var(--c) 45%, var(--line)); color:var(--c); background:var(--surface); cursor:pointer; white-space:nowrap}
+.wb-el:hover{background:color-mix(in srgb, var(--c) 8%, var(--surface))}
+.wb-el.pre{--c:var(--pre)} .wb-el.first{--c:var(--base)}
+.wb-el .n{font-family:var(--f-ui); font-weight:400; font-size:13px; color:var(--ink-3); margin-left:6px}
+.wb-bank{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 16px}
+.wb-bank .tag{font-family:var(--f-word); font-weight:700}
+
+.wb-list{list-style:none; margin:0; padding:0; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden}
+.wb-row{display:grid; grid-template-columns:2.3em minmax(0, 15em) 1.4em minmax(0, 1fr); gap:4px 10px; align-items:center; padding:12px 16px 12px 14px; border-bottom:1px solid var(--line); border-left:4px solid transparent}
+.wb-row:last-child{border-bottom:0}
+.wb-row.k-O{grid-template-columns:2.3em minmax(0, 21em) 1.4em minmax(0, 1fr)}
+.wb-row.k-T{grid-template-columns:2.3em minmax(0, 1fr)}
+.wb-row.k-T .wb-arrow{display:none}
+.wb-row.k-T .wb-from, .wb-row.k-T .wb-to{grid-column:2}
+.wb-row.k-T .wb-to::before{content:attr(data-arrow); color:var(--ink-3); font-weight:500}
+.wb-row.example{background:var(--surface-2)}
+.wb-row.is-right{border-left-color:var(--ok)} .wb-row.is-help{border-left-color:var(--warn)} .wb-row.is-wrong{border-left-color:var(--bad)}
+.wb-n{color:var(--ink-3); font-variant-numeric:tabular-nums; font-size:15px}
+.wb-row.example .wb-n{font-size:12px; color:var(--ink-2)}
+.wb-from{display:flex; flex-direction:column; gap:1px; min-width:0}
+.wb-base, .wb-pos, .wb-cue-s{font-family:var(--f-word); font-size:18px; line-height:1.3; overflow-wrap:anywhere}
+.wb-base{font-weight:700}
+.wb-pos, .wb-cue-s{font-weight:500}
+.wb-pos b{font-weight:700}
+.wb-cue{color:var(--ink-2); font-size:14.5px; line-height:1.3}
+.wb-src{color:var(--ink-3); font-size:12.5px; line-height:1.3; margin-top:2px}
+.wb-arrow{color:var(--ink-3); text-align:center}
+.wb-to{display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; font-family:var(--f-word); font-weight:500; font-size:18px; line-height:1.3; min-width:0}
+.wb-post.tight{margin-left:-6px}
+.wb-en{font-family:var(--f-ui); font-weight:400; font-size:14.5px; color:var(--ink-3)}
+.wb-in{flex:0 1 12.5em; width:12.5em; min-width:7em; min-height:42px; padding:6px 10px; border:0; border-bottom:2.5px solid var(--ink-3); border-radius:8px 8px 0 0;
+  background:var(--surface-2); font-family:var(--f-word); font-weight:700; font-size:18px; color:var(--base)}
+.wb-in:focus{outline:none; border-bottom-color:var(--focus); box-shadow:0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent)}
+.wb-go{display:none; min-height:36px}
+.wb-row.has-v .wb-go, .wb-row:focus-within .wb-go{display:inline-flex}
+.wb-ans{display:inline-block; padding:3px 11px; border-radius:8px; font-weight:700}
+.wb-ans.right, .wb-ans.wrong{background:var(--ok); color:var(--on-ok)}
+.wb-ans.help{background:var(--warn-bg); color:var(--warn); box-shadow:inset 0 0 0 1.5px var(--warn)}
+.wb-typed{color:var(--bad); text-decoration:line-through; text-decoration-thickness:2px}
+.wb-typed.big{font-weight:700}
+.wb-typed.big::after{content:'✗'; display:inline-block; margin-left:5px; text-decoration:none}
+.wb-verdict{font-family:var(--f-ui); font-size:13.5px; font-weight:700; margin-left:auto; white-space:nowrap}
+.wb-verdict.right{color:var(--ok)} .wb-verdict.help{color:var(--warn)} .wb-verdict.wrong{color:var(--bad)}
+.wb-extra{grid-column:2 / -1; min-width:0}
+.wb-extra:empty{display:none}
+.wb-pad{display:none; margin-top:6px}
+.wb-row:focus-within .wb-pad{display:flex}
+.wb-pad .chip{min-width:40px; min-height:36px; font-family:var(--f-word); font-size:16px}
+.wb-msg{margin-top:8px; padding:9px 12px; border-radius:10px; background:var(--warn-bg); border-left:4px solid var(--warn); font-size:15px; line-height:1.45}
+.wb-link{border:0; background:none; padding:0; margin-left:6px; color:var(--ink-2); font-weight:700; font-size:14px; text-decoration:underline; cursor:pointer; white-space:nowrap}
+.wb-fb{margin-top:6px; font-size:15px}
+.wb-fbline{display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px}
+.wb-fbline .word{font-size:17px}
+.wb-fb details{margin-top:6px}
+.wb-fb summary{cursor:pointer; color:var(--ink-3); font-weight:700; font-size:13.5px; width:max-content; max-width:100%}
+.wb-fb dl{margin:8px 0 0; display:grid; grid-template-columns:minmax(84px, max-content) minmax(0, 1fr); gap:6px 14px; font-size:15px; line-height:1.45}
+.wb-fb dt{color:var(--ink-3); font-weight:700}
+.wb-fb dd{margin:0; min-width:0}
+.wb-fb dd .word{white-space:normal}
+.wb-fbact{margin-top:8px}
+.wb-actions{display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:16px}
+.wb-tip{margin:10px 0 0}
+.wb-summary{margin-top:16px}
+.wb-summary .btn-row{margin-top:14px}
+
+a.wb-card{text-decoration:none; color:inherit}
+.wb-cardtop{display:flex; align-items:center; justify-content:space-between; gap:8px}
+.wb-card p{font-family:var(--f-word); font-weight:700; color:var(--suf)}
+.wb-bar{display:flex; height:8px; border-radius:99px; overflow:hidden; background:var(--line)}
+.wb-bar i{display:block; height:100%}
+.wb-bar i.known{background:var(--ok)} .wb-bar i.learning{background:color-mix(in srgb, var(--ok) 45%, var(--surface))} .wb-bar i.missed{background:var(--bad)} .wb-bar i.new{background:var(--line)}
+.today-main .wb-bar{max-width:420px}
+
+@media (max-width:720px){
+  .wb-row, .wb-row.k-O, .wb-row.k-T{grid-template-columns:2em minmax(0, 1fr); padding:12px 12px 12px 10px}
+  .wb-arrow{display:none}
+  .wb-n{align-self:start; line-height:1.3; padding-top:3px}
+  .wb-from, .wb-to{grid-column:2}
+  .wb-to::before{content:attr(data-arrow); color:var(--ink-3); font-weight:500}
+  .wb-extra{grid-column:1 / -1}
+  .wb-in{flex:1 1 6.5em; width:6.5em; min-width:6.5em; max-width:13em}
+  .wb-verdict{margin-left:0; flex-basis:100%}
+  .wb-topic{font-size:13px}
+}
+/* six tabs: keep the top bar and the bottom bar from crowding */
+@media (max-width:1040px){ .tabs a{padding:8px 10px; font-size:14.5px} .top{gap:12px} }
+@media (max-width:760px){ .bottom a{font-size:11px; min-width:0} .bottom a span:not(.due-dot){max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap} }
+.wb-rules > summary{cursor:pointer; list-style:none; display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin-bottom:10px}
+.wb-rules > summary::-webkit-details-marker{display:none}
+.wb-rules > summary h2{margin:0}
+.wb-rules > summary h2::before{content:'▸'; display:inline-block; width:1em; color:var(--ink-3)}
+.wb-rules[open] > summary h2::before{content:'▾'}
+.nb{white-space:nowrap}
+.wb-fbact{display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center}

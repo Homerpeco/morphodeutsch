@@ -34,6 +34,7 @@ A second prefix or a second ending in the same word gets its own shade (orange, 
 - **Drills** (do not move boxes): Derivation lab (see below) with transfer challenges (write words you have never seen from a known
   pattern), Partizip I vs II (37 sentences), adjective endings (generated from the nouns, incl. n-declension and plurals),
   opposites and near-synonyms, word families, words in context, prepositions + case, write your own.
+- **Workbook** (own tab): Wortbildung der Adjektive, 16 exercise sheets with typed answers. See below.
 - **Patterns**: 24 building elements with meaning, rules and 150+ example words; ending tables; Partizip I/II rule.
 - **Data**: JSON backup, CSV export/import, cloud sync between devices.
 - **AI analysis** (Gemini, button on the Add form and on every word card): meanings kept apart for polysemous words
@@ -52,6 +53,40 @@ A second prefix or a second ending in the same word gets its own shade (orange, 
   is used; code fences, trailing commas and cut-off JSON are repaired; an overloaded model gets one more try. Every
   attempt is logged as an `[enrich] {...}` line in the Vercel logs (with the start and end of a bad answer), and the
   error screen in the app lists what each attempt returned.
+
+## Workbook: Wortbildung der Adjektive
+A sixth tab with exercise sheets laid out like a printed workbook: the base word on the left, a gap and a noun on the
+right (*der Regen → ___ Wetter*). The adjective is typed **with its ending**.
+
+- **16 sheets, 249 items** in four groups. Suffixes: one word one suffix (the mixed sheet), weather and seasons, people
+  and character, time (-ig = how long, -lich = how often), can it be done (-bar, -abel, -fähig), Latin and French
+  endings (-al, -ell, -iv, -ös), character and manner (-haft, -sam, -mäßig, -gemäß), places and fields (-isch, -lich),
+  -los and its joint. Same base, different suffix: two sheets of pairs (schmerzhaft / schmerzlich, kindisch / kindlich,
+  rational / rationell …) where the English meaning decides. Prefixes: opposites with de-, in-, un-, miss-, non- or
+  -los, un- or in-, de- / des- / miss- / non-, -voll ↔ -los. Bonus: intensifying compounds (steinreich, blitzschnell).
+- **Three item kinds:** `N` base word → adjective before a noun; `T` cue sentence → adjective after *sein*
+  (*Diese Pilze kann man essen. → Diese Pilze sind ___.*); `O` adjective → its opposite before the same noun.
+- **Two tries.** A first wrong answer gets a pointer that names the problem without the solution: right adjective but
+  wrong or missing ending (with the noun's gender), wrong suffix, missing umlaut, missing or surplus linking element,
+  in- that should be il-/ir-/im-, de- or des-, a prefix where the ending has to change. Then the line is final.
+- **Look-alikes.** A real word with another meaning (launig for launisch, heilsam for heilbar, formal for formell) is
+  recognised and explained instead of being called a spelling mistake.
+- **Every line comes back with its rule:** how the word is built, the element's meaning and signal, what happens at
+  the joint, why the ending is what it is, other right answers, three words of the same pattern, look-alikes.
+  The rule opens by itself after a wrong answer. *Add to my words* puts the adjective into the deck with its base
+  word, blocks, opposite, noun and phrase; its other right answers and look-alikes go into its word family, so the
+  deck's exercises never offer one of them as a wrong option.
+- **Accepted as typed:** capitals, quotes and end punctuation, ae/oe/ue/ss, the whole phrase instead of only the
+  adjective. *My answer also fits — count it* is there for a real word the key does not know.
+- **Progress:** per item (new / to repeat / right once / right twice in a row), saved in `DB.wb` and synced. A sheet
+  in progress is resumed, also after closing the app (kept per device in `morphodeutsch_wb_v1`); a finished sheet
+  starts fresh in a new order. *Repeat the ones I did not get at once* makes a sheet of exactly those.
+- **Mixed review** (8, 12 or 20 items): missed items first, then new ones, then the least known. **One element at a
+  time:** up to 16 items of one suffix or prefix. **The rules at a glance:** all 23 elements with meaning, signal, joint.
+- Source: the adjectives come from the Wortbildung chapters of the two course grammars (B-Grammatik 4.7, C-Grammatik
+  3.5). All phrases and sentences around them are written for this app.
+
+To add items, edit `wb-data.js` (one line per item) and run `node tests/workbook-test.mjs`.
 
 ## Derivation lab
 - **Step 1: choose the element** (-voll, -lich, Partizip I or II, un- or in- …) for the meaning shown.
@@ -83,6 +118,11 @@ A second prefix or a second ending in the same word gets its own shade (orange, 
   shows its gender; otherwise the field stays empty for you or the AI analysis to fill.
 
 ### Tests (run before every release)
+- `node tests/workbook-test.mjs`: the workbook. Data checks, about 7,600 answers through the checker (right, capitals,
+  ae/oe/ue, whole phrase, every alternative, every look-alike, every wrong ending, nonsense), then every sheet typed in
+  through the page, the two-try flow, resume after a reload, mixed review order, phone layout, sync merge.
+- `node tests/sync-test.mjs`: the sync endpoint against a mocked Blob store (workbook progress is stored and is not
+  wiped by a device that still runs an older copy of the app).
 - `node tests/morph-test.mjs`: 340 words through the full split, each with its exact expected pieces, including the
   words that must stay whole.
 - `node tests/enrich-test.mjs`: the AI endpoint against a mocked Gemini (invalid JSON, cut-off answers, overload, quota,
@@ -91,7 +131,8 @@ A second prefix or a second ending in the same word gets its own shade (orange, 
 
 ### Answer-key audit
 `node tests/answer-key-audit.mjs` (Playwright + Chromium). It builds a deck (starter words, an AI-analysed word from
-`tests/fixture-entfernt.json`, 20 words typed into the Add form), then answers every exercise type for every word right and
+`tests/fixture-entfernt.json`, 20 words typed into the Add form, and one word per building element taken over from the
+workbook with *Add to my words*; `WB=2` takes two, `WB=all` every item), then answers every exercise type for every word right and
 wrong through the page (about 4,600 answers), checks the grammar of every ending question against its own declension
 tables, checks that no lab card shows its answer before the attempt, answers every lab card every way (typed, with
 case/punctuation/ae-oe-ue variants, second try, hint, blocks, *I don't know*, wrong element), checks that twelve typical
@@ -105,6 +146,8 @@ Optional `DICT=…/dictionary-de/index.dic` lists wrong options that are real Ge
 |---|---|
 | `index.html`, `styles.css` | page and design |
 | `data.js` | `AFFIXES` (pattern library), `SEED` (starter deck), `PPAIRS` (Partizip sentences), `PROMPTS` |
+| `wb-data.js` | workbook: `WB_ELEMS` (the rule behind each suffix and prefix), `WB_SETS` (the sheets and their items) |
+| `workbook.js` | workbook: sheets, answer checker, pointers, feedback, progress |
 | `morph.js` | the confirmed full split (verb, stem and root lists); used by the app and by `/api/enrich` |
 | `engine.js` | grammar: declension, noun forms, block segmentation, word-formation detection, Partizip II guesses |
 | `app.js` | app: storage, sync, practice engine, screens |
@@ -112,16 +155,18 @@ Optional `DICT=…/dictionary-de/index.dic` lists wrong options that are real Ge
 | `api/enrich.js`, `api/_enrich.js` | AI analysis endpoint (Gemini): prompt, schema, retries, validation, split check |
 | `review.js` | the AI review screen and how a reviewed analysis is saved |
 | `sw.js`, `manifest.webmanifest`, `icons/` | installable on the phone, works offline |
-| `tests/` | `answer-key-audit.mjs`, `morph-test.mjs`, `enrich-test.mjs`, fixture (not deployed: `.vercelignore`) |
+| `tests/` | `answer-key-audit.mjs`, `workbook-test.mjs`, `morph-test.mjs`, `enrich-test.mjs`, `sync-test.mjs`, fixture (not deployed: `.vercelignore`) |
 
 Rule: every `parts` array must spell its word exactly (checked at start-up, error in the console otherwise).
 
 ## Storage and sync
 - Browser: `localStorage` key **`morphodeutsch_v1`** (never rename). Sync key: `morphodeutsch_sync_key`.
+  Workbook sheet in progress: `morphodeutsch_wb_v1` (per device, not synced).
 - Cloud: `GET/PUT /api/adjectives`, one JSON document at `morphodeutsch/adjectives.json` in Vercel Blob.
   The app always merges before it writes: per word the newer `updatedAt` wins, deletions travel as tombstones,
   review log and pattern counters take the maximum. Starter words carry `updatedAt: 1`, so a fresh device never
-  overwrites progress made elsewhere.
+  overwrites progress made elsewhere. Workbook progress (`wb.it`, one record per item) merges per item: the device
+  that answered it last wins.
 
 ### Vercel settings
 | Setting | Value |
