@@ -91,6 +91,12 @@ async function seedDeck(p){
     await p.click('[data-act="save-word"]');
     await p.waitForFunction(w => DB.items.some(i => i.w === w), u.w);
   }
+  // adjectives taken over from the workbook with "Add to my words": per building element WB words (default 1, WB=all for every item)
+  await p.goto(BASE + 'index.html#workbook'); await p.waitForFunction(() => typeof wbAddToDeck === 'function');
+  await p.evaluate(per => {
+    const seen = {};
+    for (const it of wbAll()) { seen[it.el] = (seen[it.el] || 0) + 1; if (seen[it.el] <= per) wbAddToDeck(it.id); }
+  }, process.env.WB === 'all' ? 1e9 : +(process.env.WB || 1));
   await p.goto(BASE + 'index.html#practice'); await p.waitForTimeout(100);
   return p.evaluate(() => DB.items.map(i => `${i.w} [${i.kind}${i.affix ? ' ' + i.affix : ''}${i.base ? ' ← ' + i.base : ''}] ${i.parts.join('|')}`));
 }
@@ -601,7 +607,7 @@ async function scenarios(){
 
 // ---------- run ----------
 const p = await newPage();
-console.log('Building the test deck (starter words, AI-analysed word, words from the Add form)…');
+console.log('Building the test deck (starter words, AI-analysed word, words from the Add form, words taken over from the workbook)…');
 const deck = await seedDeck(p);
 console.log(`  ${deck.length} words`);
 if (process.env.VERBOSE) deck.forEach(l => console.log('   ', l));
